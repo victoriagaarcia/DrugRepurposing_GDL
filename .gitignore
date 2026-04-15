@@ -4,3 +4,5 @@ checkpoints/
 .git/
 __pycache__/
 results/
+.python-version
+uv.lock
