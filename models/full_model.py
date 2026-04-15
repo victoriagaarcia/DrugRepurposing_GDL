@@ -48,8 +48,8 @@ import torch.nn.functional as F
 from torch_geometric.data import HeteroData
 from typing import Dict, List, Tuple, Optional
 
-from first_draft.models.encoders import get_encoder
-from first_draft.models.decoders import get_decoder
+from models.encoders import get_encoder
+from models.decoders import get_decoder
 
 
 class DrugRepurposingModel(nn.Module):
@@ -432,7 +432,7 @@ if __name__ == "__main__":
     # Test del modelo
     import sys
     sys.path.append("..")
-    from first_draft.config import get_config
+    from config import get_config
     
     config = get_config()
     

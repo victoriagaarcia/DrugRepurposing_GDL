@@ -66,10 +66,10 @@ import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 
-from first_draft.config import Config, get_config
-from first_draft.data_loader import HetionetDataLoader, create_ablation_data
-from first_draft.train import train_model
-from first_draft.evaluate import LinkPredictionEvaluator, format_metrics
+from config import Config, get_config
+from data_loader import HetionetDataLoader, create_ablation_data
+from train import train_model
+from evaluate import LinkPredictionEvaluator, format_metrics
 
 
 class AblationStudy:

@@ -54,17 +54,17 @@ from datetime import datetime
 import torch
 
 # Importar módulos del proyecto
-from first_draft.config import (
+from config import (
     DataConfig, ModelConfig, TrainingConfig, 
     EvaluationConfig, AblationConfig, 
     ENCODER_TYPES, DECODER_TYPES
 )
-from first_draft.data_loader import HetionetDataLoader
-from first_draft.models import create_model, LinkPredictionLoss
-from first_draft.train import Trainer, train_model
-from first_draft.evaluate import LinkPredictionEvaluator
-from first_draft.ablation import AblationStudy
-from first_draft.utils import (
+from data_loader import HetionetDataLoader
+from models import create_model, LinkPredictionLoss
+from train import Trainer, train_model
+from evaluate import LinkPredictionEvaluator
+from ablation import AblationStudy
+from utils import (
     set_seed, setup_logging, get_device, Timer,
     save_checkpoint, load_checkpoint,
     plot_training_curves, plot_ablation_results,

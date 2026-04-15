@@ -60,7 +60,7 @@ from torch_geometric.data import HeteroData
 from torch_geometric.transforms import RandomLinkSplit
 from sklearn.preprocessing import LabelEncoder
 
-from first_draft.config import Config, get_config
+from config import Config, get_config
 
 
 class HetionetDataLoader:

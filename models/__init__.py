@@ -7,21 +7,21 @@ Contiene:
 - full_model: Modelo completo encoder-decoder
 """
 
-from first_draft.models.encoders import (
+from models.encoders import (
     RGCNEncoder,
     HANEncoder,
     HeteroGraphSAGEEncoder,
     get_encoder
 )
 
-from first_draft.models.decoders import (
+from models.decoders import (
     DotProductDecoder,
     DistMultDecoder,
     MLPDecoder,
     get_decoder
 )
 
-from first_draft.models.full_model import (
+from models.full_model import (
     DrugRepurposingModel,
     LinkPredictionLoss,
     create_model

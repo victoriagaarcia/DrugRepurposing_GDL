@@ -50,9 +50,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_geometric.data import HeteroData
 import numpy as np
 
-from first_draft.config import Config, get_config
-from first_draft.models.full_model import DrugRepurposingModel, LinkPredictionLoss, create_model
-from first_draft.evaluate import LinkPredictionEvaluator, format_metrics
+from config import Config, get_config
+from models.full_model import DrugRepurposingModel, LinkPredictionLoss, create_model
+from evaluate import LinkPredictionEvaluator, format_metrics
 
 
 class Trainer:
@@ -477,7 +477,7 @@ def train_model(
 
 if __name__ == "__main__":
     # Test del trainer
-    from first_draft.data_loader import HetionetDataLoader
+    from data_loader import HetionetDataLoader
     
     print("Testing Trainer...")
     

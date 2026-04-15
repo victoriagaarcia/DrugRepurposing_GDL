@@ -272,6 +272,9 @@ def get_config() -> Config:
     """Retorna la configuración por defecto."""
     return Config()
 
+# Tipos válidos de encoder y decoder para CLI
+ENCODER_TYPES = ["rgcn", "han", "graphsage"]
+DECODER_TYPES = ["distmult", "dotproduct", "mlp"]
 
 if __name__ == "__main__":
     # Test de la configuración
