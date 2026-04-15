@@ -291,7 +291,7 @@ def get_memory_usage() -> Dict[str, float]:
 
 def save_checkpoint(
     model: nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: Optional[torch.optim.Optimizer],
     epoch: int,
     metrics: Dict[str, float],
     path: str,
@@ -300,46 +300,35 @@ def save_checkpoint(
 ) -> None:
     """
     Guarda un checkpoint completo del entrenamiento.
-    
-    TEORÍA:
-    -------
-    El checkpointing es crucial para:
-    1. Reanudar entrenamiento interrumpido
-    2. Selección de modelo basada en validación
-    3. Reproducibilidad de experimentos
-    
-    Guardamos no solo el modelo, sino también:
-    - Estado del optimizador (momentums, etc.)
-    - Estado del scheduler de learning rate
-    - Época actual
-    - Métricas para selección de modelo
-    
-    Args:
-        model: Modelo a guardar
-        optimizer: Estado del optimizador
-        epoch: Época actual
-        metrics: Métricas de evaluación
-        path: Ruta para guardar
-        scheduler: Scheduler de LR (opcional)
-        config: Configuración del experimento (opcional)
     """
     checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'metrics': metrics,
-        'timestamp': datetime.now().isoformat()
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "metrics": metrics,
+        "timestamp": datetime.now().isoformat(),
     }
-    
+
+    if optimizer is not None:
+        checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+
     if scheduler is not None:
-        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
-    
+        checkpoint["scheduler_state_dict"] = scheduler.state_dict()
+
+    # Guardar solo config serializable
     if config is not None:
-        checkpoint['config'] = config
-    
-    # Crear directorio si no existe
+        if isinstance(config, dict):
+            checkpoint["config"] = config
+        else:
+            try:
+                from dataclasses import asdict, is_dataclass
+                if is_dataclass(config):
+                    checkpoint["config"] = asdict(config)
+                else:
+                    checkpoint["config"] = str(config)
+            except Exception:
+                checkpoint["config"] = str(config)
+
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    
     torch.save(checkpoint, path)
     logging.info(f"Checkpoint guardado: {path}")
 
@@ -353,37 +342,27 @@ def load_checkpoint(
 ) -> Dict[str, Any]:
     """
     Carga un checkpoint y restaura el estado.
-    
-    Args:
-        path: Ruta del checkpoint
-        model: Modelo donde cargar los pesos
-        optimizer: Optimizador para restaurar estado (opcional)
-        scheduler: Scheduler para restaurar estado (opcional)
-        device: Dispositivo donde cargar (opcional)
-        
-    Returns:
-        Diccionario con información del checkpoint (época, métricas, etc.)
     """
     if device is None:
         device = get_device()
-    
+
     checkpoint = torch.load(path, map_location=device)
-    
-    model.load_state_dict(checkpoint['model_state_dict'])
-    
-    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
-    if scheduler is not None and 'scheduler_state_dict' in checkpoint:
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    if optimizer is not None and "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    if scheduler is not None and "scheduler_state_dict" in checkpoint:
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
     logging.info(f"Checkpoint cargado: {path} (época {checkpoint['epoch']})")
-    
+
     return {
-        'epoch': checkpoint['epoch'],
-        'metrics': checkpoint.get('metrics', {}),
-        'config': checkpoint.get('config', {}),
-        'timestamp': checkpoint.get('timestamp')
+        "epoch": checkpoint["epoch"],
+        "metrics": checkpoint.get("metrics", {}),
+        "config": checkpoint.get("config", {}),
+        "timestamp": checkpoint.get("timestamp"),
     }
 
 

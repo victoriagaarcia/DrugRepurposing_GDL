@@ -103,15 +103,20 @@ class HetionetDataLoader:
         Returns:
             Ruta al archivo descargado
         """
+        # Si no hay URL, usar directamente dataset sintético
+        if self.config.data.hetionet_url is None:
+            print("Modo sintético activado: no se descargará Hetionet.")
+            return self._create_synthetic_data()
+
         filepath = os.path.join(self.data_dir, "hetionet-v1.0.json.bz2")
-        
+
         if not os.path.exists(filepath):
             print("Descargando Hetionet v1.0...")
             print(f"URL: {self.config.data.hetionet_url}")
-            
+
             try:
                 urllib.request.urlretrieve(
-                    self.config.data.hetionet_url, 
+                    self.config.data.hetionet_url,
                     filepath
                 )
                 print(f"Descargado en: {filepath}")
@@ -121,7 +126,7 @@ class HetionetDataLoader:
                 return self._create_synthetic_data()
         else:
             print(f"Hetionet ya existe en: {filepath}")
-            
+
         return filepath
     
     def _create_synthetic_data(self) -> str:
@@ -252,6 +257,10 @@ class HetionetDataLoader:
         edges_by_type: Dict[Tuple, List[Tuple[int, int]]] = defaultdict(list)
         
         for edge in data.get("edges", []):
+            sample_edges = data.get("edges", [])[:3]
+            print("\nMUESTRA DE ARISTAS REALES:")
+            for i, e in enumerate(sample_edges):
+                print(f"Edge {i}: {e}")
             source_id = edge.get("source", "")
             target_id = edge.get("target", "")
             

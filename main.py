@@ -3,658 +3,662 @@
 MAIN.PY - Punto de Entrada Principal para Drug Repurposing GNN
 =============================================================================
 
-Este script orquesta todo el pipeline de Drug Repurposing mediante GNNs:
-
-1. CARGA DE DATOS
-   - Descarga Hetionet o crea dataset sintético
-   - Preprocesa en formato PyG HeteroData
-   - Divide en train/val/test
-
-2. ENTRENAMIENTO
-   - Configura modelo (encoder + decoder)
-   - Entrena con negative sampling
-   - Guarda checkpoints
-
-3. EVALUACIÓN
-   - Métricas de ranking (MRR, Hits@K)
-   - Métricas de clasificación (AUC-ROC)
-
-4. ESTUDIO DE ABLACIÓN
-   - Compara arquitecturas (R-GCN, HAN, GraphSAGE)
-   - Evalúa importancia de entidades intermedias
-
-5. ANÁLISIS DE RESULTADOS
-   - Genera reportes
-   - Visualiza predicciones
-
-USO:
-----
-    # Modo rápido (datos sintéticos)
-    python main.py --mode quick
-    
-    # Experimento único
-    python main.py --mode single --encoder rgcn --decoder distmult
-    
-    # Estudio de ablación completo
-    python main.py --mode ablation
-    
-    # Análisis de predicciones
-    python main.py --mode analyze --checkpoint path/to/model.pt
-
+Orquesta el pipeline completo:
+1. Carga de datos
+2. Entrenamiento
+3. Evaluación
+4. Ablación
+5. Análisis de predicciones
 =============================================================================
 """
 
-import os
-import sys
+from __future__ import annotations
+
 import argparse
 import logging
-from pathlib import Path
+from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
-# Importar módulos del proyecto
-from config import (
-    DataConfig, ModelConfig, TrainingConfig, 
-    EvaluationConfig, AblationConfig, 
-    ENCODER_TYPES, DECODER_TYPES
-)
+from config import Config, ENCODER_TYPES, DECODER_TYPES, get_config
 from data_loader import HetionetDataLoader
-from models import create_model, LinkPredictionLoss
-from train import Trainer, train_model
-from evaluate import LinkPredictionEvaluator
+from train import train_model
+from evaluate import LinkPredictionEvaluator, format_metrics
 from ablation import AblationStudy
+from models.full_model import create_model
 from utils import (
-    set_seed, setup_logging, get_device, Timer,
-    save_checkpoint, load_checkpoint,
-    plot_training_curves, plot_ablation_results,
-    compute_graph_statistics, print_graph_statistics,
-    save_results_json, analyze_predictions, format_predictions_report
+    set_seed,
+    setup_logging,
+    get_device,
+    Timer,
+    compute_graph_statistics,
+    print_graph_statistics,
+    save_results_json,
+    analyze_predictions,
+    format_predictions_report,
 )
 
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
 
-# =============================================================================
-# FUNCIONES PRINCIPALES
-# =============================================================================
+ENCODER_CHOICES = sorted(set(ENCODER_TYPES + ["sage"]))
+DECODER_CHOICES = sorted(set(DECODER_TYPES + ["dot"]))
+
+
+def normalize_encoder_name(name: str) -> str:
+    mapping = {
+        "rgcn": "rgcn",
+        "han": "han",
+        "graphsage": "sage",
+        "sage": "sage",
+    }
+    key = name.lower()
+    if key not in mapping:
+        raise ValueError(f"Encoder no soportado: {name}")
+    return mapping[key]
+
+
+def normalize_decoder_name(name: str) -> str:
+    mapping = {
+        "distmult": "distmult",
+        "dotproduct": "dot",
+        "dot": "dot",
+        "mlp": "mlp",
+    }
+    key = name.lower()
+    if key not in mapping:
+        raise ValueError(f"Decoder no soportado: {name}")
+    return mapping[key]
+
+
+def apply_config_dict(config: Config, cfg_dict: Dict) -> Config:
+    """Sobrescribe un Config con un dict serializado."""
+    if not isinstance(cfg_dict, dict):
+        return config
+
+    for section_name in ["data", "model", "training", "evaluation", "ablation"]:
+        section_values = cfg_dict.get(section_name)
+        if not isinstance(section_values, dict):
+            continue
+
+        section_obj = getattr(config, section_name, None)
+        if section_obj is None:
+            continue
+
+        for key, value in section_values.items():
+            if hasattr(section_obj, key):
+                setattr(section_obj, key, value)
+
+    for key in ["experiment_name", "seed"]:
+        if key in cfg_dict and hasattr(config, key):
+            setattr(config, key, cfg_dict[key])
+
+    return config
+
+
+def build_config(
+    use_synthetic: bool,
+    seed: int,
+    checkpoint_dir: Path,
+) -> Config:
+    """Construye una configuración coherente para el experimento."""
+    config = get_config()
+    device = get_device()
+
+    config.seed = seed
+    config.data.random_seed = seed
+    config.training.device = device.type
+    config.training.checkpoint_dir = str(checkpoint_dir)
+
+    if use_synthetic:
+        # Con el data_loader actual, poner la URL a None fuerza el fallback
+        # al dataset sintético dentro del except.
+        config.data.hetionet_url = None
+        config.training.num_epochs = min(config.training.num_epochs, 50)
+        config.training.patience = min(config.training.patience, 10)
+
+    return config
+
+
+def resolve_target_edge_type(
+    data,
+    default_target: Tuple[str, str, str],
+) -> Tuple[str, str, str]:
+    """
+    Busca en el HeteroData el edge type real equivalente al target lógico.
+    Prioriza mismo src/dst y misma relación; si no existe, usa el primero
+    con mismo src/dst.
+    """
+    if default_target in data.edge_types:
+        return default_target
+
+    exact_src_dst = None
+    for et in data.edge_types:
+        if et[0] == default_target[0] and et[2] == default_target[2]:
+            if et[1] == default_target[1]:
+                return et
+            if exact_src_dst is None:
+                exact_src_dst = et
+
+    if exact_src_dst is not None:
+        return exact_src_dst
+
+    if len(data.edge_types) == 0:
+        raise ValueError("El grafo no contiene tipos de arista.")
+
+    return list(data.edge_types)[0]
+
+
+def sample_negative_edges(
+    data,
+    edge_type: Tuple[str, str, str],
+    num_samples: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Muestrea negativos sencillos para evaluación cuando no hay edge_label."""
+    src_type, _, dst_type = edge_type
+    num_src = data[src_type].num_nodes
+    num_dst = data[dst_type].num_nodes
+
+    existing_edges = set()
+    if hasattr(data[edge_type], "edge_index"):
+        for src, dst in data[edge_type].edge_index.t().cpu().tolist():
+            existing_edges.add((src, dst))
+
+    neg_src: List[int] = []
+    neg_dst: List[int] = []
+
+    while len(neg_src) < num_samples:
+        batch = max(2 * (num_samples - len(neg_src)), 32)
+        src_samples = torch.randint(0, num_src, (batch,))
+        dst_samples = torch.randint(0, num_dst, (batch,))
+
+        for src, dst in zip(src_samples.tolist(), dst_samples.tolist()):
+            if (src, dst) not in existing_edges:
+                neg_src.append(src)
+                neg_dst.append(dst)
+                if len(neg_src) >= num_samples:
+                    break
+
+    return torch.tensor(
+        [neg_src[:num_samples], neg_dst[:num_samples]],
+        dtype=torch.long,
+        device=device,
+    )
+
+
+def get_eval_edges_and_labels(
+    data,
+    edge_type: Tuple[str, str, str],
+    device: torch.device,
+    negative_ratio: int = 1,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Extrae edge_label_index/edge_label o los construye si no existen."""
+    if hasattr(data[edge_type], "edge_label_index") and hasattr(data[edge_type], "edge_label"):
+        return data[edge_type].edge_label_index.to(device), data[edge_type].edge_label.to(device)
+
+    if not hasattr(data[edge_type], "edge_index"):
+        raise ValueError(f"No se encontraron edge_index ni edge_label_index para {edge_type}")
+
+    pos_edge_index = data[edge_type].edge_index.to(device)
+    num_pos = pos_edge_index.size(1)
+    num_neg = max(num_pos * negative_ratio, 1)
+
+    neg_edge_index = sample_negative_edges(data, edge_type, num_neg, device)
+
+    edge_label_index = torch.cat([pos_edge_index, neg_edge_index], dim=1)
+    edge_label = torch.cat(
+        [
+            torch.ones(num_pos, device=device),
+            torch.zeros(num_neg, device=device),
+        ]
+    )
+    return edge_label_index, edge_label
+
+
+def save_final_model(
+    path: Path,
+    model,
+    config: Config,
+    encoder_type: str,
+    decoder_type: str,
+    target_edge_type: Tuple[str, str, str],
+    history: Dict,
+    test_metrics: Dict,
+) -> None:
+    """Guarda un checkpoint simple y coherente para inferencia/análisis."""
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "config": asdict(config),
+        "encoder_type": encoder_type,
+        "decoder_type": decoder_type,
+        "target_edge_type": list(target_edge_type),
+        "history": history,
+        "test_metrics": test_metrics,
+        "timestamp": datetime.now().isoformat(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(checkpoint, path)
+
+
+# -----------------------------------------------------------------------------
+# Experimentos
+# -----------------------------------------------------------------------------
 
 def run_single_experiment(
-    encoder_type: str = 'rgcn',
-    decoder_type: str = 'distmult',
+    encoder_type: str = "rgcn",
+    decoder_type: str = "distmult",
     use_synthetic: bool = False,
     seed: int = 42,
-    output_dir: str = 'results'
-) -> dict:
+    output_dir: str = "results",
+) -> Dict:
     """
-    Ejecuta un experimento único con configuración específica.
-    
-    PIPELINE:
-    ---------
-    1. Configurar reproducibilidad
-    2. Cargar y preprocesar datos
-    3. Crear modelo (encoder + decoder)
-    4. Entrenar con early stopping
-    5. Evaluar en test set
-    6. Guardar resultados
-    
-    Args:
-        encoder_type: Tipo de encoder ('rgcn', 'han', 'graphsage')
-        decoder_type: Tipo de decoder ('distmult', 'dotproduct', 'mlp')
-        use_synthetic: Si True, usa datos sintéticos (más rápido para debugging)
-        seed: Semilla para reproducibilidad
-        output_dir: Directorio para guardar resultados
-        
-    Returns:
-        Diccionario con métricas y resultados
+    Ejecuta un experimento único completo:
+    datos -> entrenamiento -> evaluación -> guardado.
     """
-    # -------------------------------------------------------------------------
-    # SETUP
-    # -------------------------------------------------------------------------
     set_seed(seed)
-    device = get_device()
-    
-    # Crear directorio de salida
+
+    encoder_cli = encoder_type
+    decoder_cli = decoder_type
+    encoder_type = normalize_encoder_name(encoder_type)
+    decoder_type = normalize_decoder_name(decoder_type)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    exp_name = f"{encoder_type}_{decoder_type}_{timestamp}"
+    exp_name = f"{encoder_cli}_{decoder_cli}_{timestamp}"
     exp_dir = Path(output_dir) / exp_name
     exp_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Configurar logging
-    logger = setup_logging(
-        log_dir=str(exp_dir),
-        log_file='experiment.log'
-    )
-    
+
+    logger = setup_logging(log_dir=str(exp_dir), log_file="experiment.log")
+    device = get_device()
+
     logger.info(f"Iniciando experimento: {exp_name}")
-    logger.info(f"Encoder: {encoder_type}, Decoder: {decoder_type}")
+    logger.info(f"Encoder CLI: {encoder_cli} -> interno: {encoder_type}")
+    logger.info(f"Decoder CLI: {decoder_cli} -> interno: {decoder_type}")
     logger.info(f"Device: {device}")
-    
-    # -------------------------------------------------------------------------
-    # CONFIGURACIÓN
-    # -------------------------------------------------------------------------
-    data_config = DataConfig()
-    model_config = ModelConfig()
-    training_config = TrainingConfig()
-    eval_config = EvaluationConfig()
-    
-    # Ajustar para datos sintéticos (más pequeños)
-    if use_synthetic:
-        training_config.epochs = 50
-        training_config.patience = 10
-        data_config.hetionet_url = None  # Forzar sintético
-    
-    # -------------------------------------------------------------------------
-    # CARGA DE DATOS
-    # -------------------------------------------------------------------------
+
+    config = build_config(
+        use_synthetic=use_synthetic,
+        seed=seed,
+        checkpoint_dir=exp_dir / "checkpoints",
+    )
+
     logger.info("Cargando datos...")
-    
     with Timer("Carga de datos", logger):
-        data_loader = HetionetDataLoader(data_config)
-        train_data, val_data, test_data = data_loader.prepare_data()
-    
-    # Estadísticas del grafo
+        data_loader = HetionetDataLoader(config)
+        data, train_data, val_data, test_data = data_loader.load_data()
+
     stats = compute_graph_statistics(train_data)
     print_graph_statistics(stats)
-    save_results_json(stats, str(exp_dir / 'graph_statistics.json'))
-    
-    # Mover a dispositivo
-    train_data = train_data.to(device)
-    val_data = val_data.to(device)
-    test_data = test_data.to(device)
-    
-    logger.info(f"Datos cargados: {stats['total_nodes']:,} nodos, {stats['total_edges']:,} aristas")
-    
-    # -------------------------------------------------------------------------
-    # CREAR MODELO
-    # -------------------------------------------------------------------------
-    logger.info(f"Creando modelo {encoder_type} + {decoder_type}...")
-    
-    model = create_model(
-        encoder_type=encoder_type,
-        decoder_type=decoder_type,
-        data=train_data,
-        model_config=model_config
+    save_results_json(stats, str(exp_dir / "graph_statistics.json"))
+
+    logger.info(
+        f"Datos cargados: {stats['total_nodes']:,} nodos, {stats['total_edges']:,} aristas"
     )
-    model = model.to(device)
-    
-    # Contar parámetros
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"Parámetros totales: {total_params:,}")
-    logger.info(f"Parámetros entrenables: {trainable_params:,}")
-    
-    # -------------------------------------------------------------------------
-    # ENTRENAMIENTO
-    # -------------------------------------------------------------------------
+
+    target_edge_type = resolve_target_edge_type(train_data, config.data.target_edge_type)
+    logger.info(f"Target edge type resuelto: {target_edge_type}")
+
     logger.info("Iniciando entrenamiento...")
-    
     with Timer("Entrenamiento", logger):
         trained_model, history = train_model(
-            model=model,
+            config=config,
             train_data=train_data,
             val_data=val_data,
-            training_config=training_config,
-            eval_config=eval_config,
-            device=device,
-            checkpoint_dir=str(exp_dir / 'checkpoints')
+            encoder_type=encoder_type,
+            decoder_type=decoder_type,
+            target_edge_type=target_edge_type,
         )
-    
-    # Guardar curvas de entrenamiento
-    if history.get('train_losses') and history.get('val_losses'):
-        plot_training_curves(
-            train_losses=history['train_losses'],
-            val_losses=history['val_losses'],
-            val_metrics={'MRR': history.get('val_mrr', [])},
-            save_path=str(exp_dir / 'training_curves.png'),
-            title=f'Training Progress - {encoder_type} + {decoder_type}'
-        )
-    
-    # -------------------------------------------------------------------------
-    # EVALUACIÓN FINAL
-    # -------------------------------------------------------------------------
+
     logger.info("Evaluación en test set...")
-    
-    evaluator = LinkPredictionEvaluator(eval_config)
-    
+    evaluator = LinkPredictionEvaluator(
+        hits_k_values=config.evaluation.hits_k_values,
+        filtered=config.evaluation.filtered,
+    )
+
+    edge_label_index, edge_label = get_eval_edges_and_labels(
+        test_data,
+        target_edge_type,
+        device=torch.device(config.training.device),
+        negative_ratio=max(1, config.training.negative_sampling_ratio),
+    )
+
     with Timer("Evaluación", logger):
         test_metrics = evaluator.evaluate(
             model=trained_model,
             data=test_data,
-            edge_type=data_config.target_edge_type
+            edge_label_index=edge_label_index,
+            edge_label=edge_label,
+            src_type=target_edge_type[0],
+            dst_type=target_edge_type[2],
+            batch_size=config.training.batch_size,
         )
-    
-    # Mostrar resultados
-    logger.info("\n" + "=" * 50)
-    logger.info("RESULTADOS FINALES (TEST SET)")
-    logger.info("=" * 50)
-    for metric, value in test_metrics.items():
-        logger.info(f"  {metric}: {value:.4f}")
-    logger.info("=" * 50)
-    
-    # -------------------------------------------------------------------------
-    # GUARDAR RESULTADOS
-    # -------------------------------------------------------------------------
+
+    logger.info("\n" + "=" * 60)
+    logger.info("RESULTADOS FINALES (TEST)")
+    logger.info("=" * 60)
+    logger.info("\n" + format_metrics(test_metrics))
+    logger.info("=" * 60)
+
     results = {
-        'experiment_name': exp_name,
-        'encoder_type': encoder_type,
-        'decoder_type': decoder_type,
-        'seed': seed,
-        'config': {
-            'model': model_config.__dict__,
-            'training': training_config.__dict__,
-        },
-        'graph_statistics': stats,
-        'total_parameters': total_params,
-        'trainable_parameters': trainable_params,
-        'training_history': history,
-        'test_metrics': test_metrics,
-        'timestamp': timestamp
+        "experiment_name": exp_name,
+        "encoder_type_cli": encoder_cli,
+        "decoder_type_cli": decoder_cli,
+        "encoder_type": encoder_type,
+        "decoder_type": decoder_type,
+        "seed": seed,
+        "use_synthetic": use_synthetic,
+        "target_edge_type": list(target_edge_type),
+        "config": asdict(config),
+        "graph_statistics": stats,
+        "training_history": history,
+        "test_metrics": test_metrics,
+        "timestamp": timestamp,
     }
-    
-    save_results_json(results, str(exp_dir / 'results.json'))
-    
-    # Guardar modelo final
-    save_checkpoint(
+
+    save_results_json(results, str(exp_dir / "results.json"))
+    save_final_model(
+        path=exp_dir / "final_model.pt",
         model=trained_model,
-        optimizer=None,  # No necesario para inferencia
-        epoch=history.get('best_epoch', -1),
-        metrics=test_metrics,
-        path=str(exp_dir / 'final_model.pt'),
-        config=results['config']
+        config=config,
+        encoder_type=encoder_type,
+        decoder_type=decoder_type,
+        target_edge_type=target_edge_type,
+        history=history,
+        test_metrics=test_metrics,
     )
-    
+
     logger.info(f"Resultados guardados en: {exp_dir}")
-    
+    return results
+
+
+def run_quick_test(output_dir: str = "results/quick_test") -> Dict:
+    """Ejecuta una prueba rápida con datos sintéticos."""
+    logger = setup_logging()
+    logger.info("Ejecutando test rápido con datos sintéticos...")
+
+    results = run_single_experiment(
+        encoder_type="rgcn",
+        decoder_type="distmult",
+        use_synthetic=True,
+        seed=42,
+        output_dir=output_dir,
+    )
+
+    logger.info("Test rápido completado.")
+    logger.info(f"MRR: {results['test_metrics'].get('MRR', 0.0):.4f}")
+    logger.info(f"Hits@10: {results['test_metrics'].get('Hits@10', 0.0):.4f}")
     return results
 
 
 def run_ablation_study(
-    seeds: list = [42, 123, 456],
+    seeds: Optional[List[int]] = None,
     use_synthetic: bool = False,
-    output_dir: str = 'results/ablation'
-) -> dict:
+    output_dir: str = "results/ablation",
+) -> Dict:
     """
-    Ejecuta el estudio de ablación completo.
-    
-    DISEÑO DEL ESTUDIO:
-    -------------------
-    El estudio evalúa dos dimensiones:
-    
-    1. ARQUITECTURAS GNN (encoder):
-       - R-GCN: Una convolución por tipo de relación
-       - HAN: Attention heterogéneo
-       - GraphSAGE: Sampling + aggregation inductivo
-    
-    2. CONTRIBUCIÓN DE ENTIDADES INTERMEDIAS (ablación):
-       - full: Grafo completo (Compound, Disease, Gene, Anatomy)
-       - no_anatomy: Sin nodos de anatomía
-       - no_gene: Sin nodos de genes
-       - no_intermediate: Solo Compound-Disease (baseline)
-    
-    La hipótesis central es que los genes son cruciales porque
-    los fármacos actúan a través de vecindarios de proteínas,
-    validando el framework de network medicine de Barabási.
-    
-    Args:
-        seeds: Lista de semillas para múltiples runs
-        use_synthetic: Si True, usa datos sintéticos
-        output_dir: Directorio de salida
-        
-    Returns:
-        Diccionario con todos los resultados del estudio
+    Ejecuta el estudio de ablación usando la API actual de AblationStudy.
     """
-    logger = logging.getLogger('DrugRepurposingGNN')
+    seeds = seeds or [42, 43, 44]
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    exp_dir = Path(output_dir) / f"ablation_{timestamp}"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = setup_logging(log_dir=str(exp_dir), log_file="ablation.log")
     logger.info("Iniciando estudio de ablación...")
-    
-    # Crear estudio
-    ablation_config = AblationConfig()
-    
-    # Configuraciones
-    data_config = DataConfig()
-    model_config = ModelConfig()
-    training_config = TrainingConfig()
-    eval_config = EvaluationConfig()
-    
-    # Ajustar para datos sintéticos
+
+    config = build_config(
+        use_synthetic=use_synthetic,
+        seed=seeds[0],
+        checkpoint_dir=exp_dir / "checkpoints",
+    )
+    config.ablation.num_runs = len(seeds)
+
     if use_synthetic:
-        training_config.epochs = 30
-        training_config.patience = 5
-    
-    # Ejecutar estudio
-    study = AblationStudy(
-        data_config=data_config,
-        model_config=model_config,
-        training_config=training_config,
-        eval_config=eval_config,
-        ablation_config=ablation_config,
-        output_dir=output_dir
-    )
-    
-    with Timer("Estudio de ablación completo", logger):
+        config.training.num_epochs = min(config.training.num_epochs, 30)
+        config.training.patience = min(config.training.patience, 5)
+
+    study = AblationStudy(config)
+
+    # AblationStudy actual espera "sage", no "graphsage".
+    encoder_types = ["rgcn", "han", "sage"]
+
+    with Timer("Estudio de ablación", logger):
         results = study.run_full_study(
-            seeds=seeds,
-            encoder_types=['rgcn', 'han', 'graphsage']
+            encoder_types=encoder_types,
+            decoder_type="distmult",
         )
-    
-    # Analizar y visualizar
-    analysis = study.analyze_results(results)
-    
-    # Visualizar resultados
-    for metric in ['MRR', 'Hits@10']:
-        plot_ablation_results(
-            results={k: v['mean'] for k, v in analysis.items()},
-            metric=metric,
-            save_path=str(Path(output_dir) / f'ablation_{metric}.png')
-        )
-    
-    logger.info("Estudio de ablación completado")
-    
-    return results
 
+    analysis_text = study.analyze_results()
 
-def run_quick_test(output_dir: str = 'results/quick_test'):
-    """
-    Ejecuta un test rápido con datos sintéticos para verificar el pipeline.
-    
-    Útil para:
-    - Verificar que todo está instalado correctamente
-    - Debug rápido del código
-    - Entender el flujo del pipeline
-    """
-    logger = logging.getLogger('DrugRepurposingGNN')
-    logger.info("Ejecutando test rápido con datos sintéticos...")
-    
-    # Ejecutar un experimento simple con datos sintéticos
-    results = run_single_experiment(
-        encoder_type='rgcn',
-        decoder_type='distmult',
-        use_synthetic=True,
-        seed=42,
-        output_dir=output_dir
-    )
-    
-    logger.info("\nTest rápido completado!")
-    logger.info(f"MRR: {results['test_metrics'].get('MRR', 'N/A'):.4f}")
-    logger.info(f"Hits@10: {results['test_metrics'].get('Hits@10', 'N/A'):.4f}")
-    
-    return results
+    analysis_path = exp_dir / "ablation_analysis.txt"
+    analysis_path.write_text(analysis_text, encoding="utf-8")
+    save_results_json(results, str(exp_dir / "ablation_results_copy.json"))
+
+    logger.info("Análisis de ablación generado.")
+    logger.info(f"Guardado en: {analysis_path}")
+
+    return {
+        "results": results,
+        "analysis_path": str(analysis_path),
+        "output_dir": str(exp_dir),
+    }
 
 
 def analyze_model_predictions(
     checkpoint_path: str,
-    output_dir: str = 'results/analysis'
-):
+    output_dir: str = "results/analysis",
+) -> Dict:
     """
-    Analiza las predicciones de un modelo entrenado.
-    
-    ANÁLISIS INCLUIDO:
-    ------------------
-    1. Top-K predicciones nuevas
-    2. Distribución de scores
-    3. Predicciones por enfermedad
-    4. Predicciones por fármaco
-    5. Validación retrospectiva (si hay ground truth)
-    
-    Args:
-        checkpoint_path: Ruta al checkpoint del modelo
-        output_dir: Directorio para guardar análisis
+    Carga un modelo guardado y genera análisis de predicciones.
     """
-    logger = logging.getLogger('DrugRepurposingGNN')
-    logger.info(f"Analizando predicciones del modelo: {checkpoint_path}")
-    
+    output_dir = str(Path(output_dir))
+    logger = setup_logging(log_dir=output_dir, log_file="analysis.log")
     device = get_device()
-    
-    # Cargar datos
-    data_config = DataConfig()
-    data_loader = HetionetDataLoader(data_config)
-    train_data, val_data, test_data = data_loader.prepare_data()
-    
-    # Reconstruir modelo (necesitamos la misma arquitectura)
-    # Cargar checkpoint para obtener config
+
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    config = checkpoint.get('config', {})
-    
-    # Crear modelo con la configuración guardada
-    model_config = ModelConfig()
-    if 'model' in config:
-        for key, value in config['model'].items():
-            if hasattr(model_config, key):
-                setattr(model_config, key, value)
-    
-    # Inferir tipo de encoder/decoder del nombre del archivo si no está en config
-    encoder_type = 'rgcn'  # default
-    decoder_type = 'distmult'  # default
-    
+
+    config = get_config()
+    config = apply_config_dict(config, checkpoint.get("config", {}))
+    config.training.device = device.type
+
+    encoder_type = normalize_encoder_name(checkpoint.get("encoder_type", "rgcn"))
+    decoder_type = normalize_decoder_name(checkpoint.get("decoder_type", "distmult"))
+
+    logger.info(f"Analizando checkpoint: {checkpoint_path}")
+    logger.info(f"Encoder: {encoder_type} | Decoder: {decoder_type}")
+
+    data_loader = HetionetDataLoader(config)
+    data, train_data, val_data, test_data = data_loader.load_data()
+
     model = create_model(
+        data=data,
+        config=config,
         encoder_type=encoder_type,
         decoder_type=decoder_type,
-        data=train_data,
-        model_config=model_config
     )
-    
-    # Cargar pesos
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
     model.eval()
-    
-    # Generar predicciones para todos los pares posibles
-    logger.info("Generando predicciones...")
-    
-    test_data = test_data.to(device)
-    
+
+    target_edge_type = resolve_target_edge_type(data, config.data.target_edge_type)
+
+    logger.info("Generando scores para todos los pares posibles...")
     with torch.no_grad():
-        # Obtener embeddings
-        embeddings = model.encode(test_data)
-        
-        # Predecir todos los pares Compound-Disease
-        compound_emb = embeddings['Compound']
-        disease_emb = embeddings['Disease']
-        
-        # Scores para todos los pares
         all_scores = model.predict_all_pairs(
-            compound_emb, disease_emb, 
-            data_config.target_edge_type
-        )
-    
-    # Crear lista de predicciones
+            data.to(device),
+            src_type=target_edge_type[0],
+            dst_type=target_edge_type[2],
+        ).detach().cpu()
+
+    # Filtrar pares ya conocidos en el grafo completo.
+    known_edges = set()
+    if hasattr(data[target_edge_type], "edge_index"):
+        for src, dst in data[target_edge_type].edge_index.t().cpu().tolist():
+            known_edges.add((src, dst))
+
+    src_type, _, dst_type = target_edge_type
+    src_names = data_loader.idx_to_node.get(src_type, {})
+    dst_names = data_loader.idx_to_node.get(dst_type, {})
+
     predictions = []
-    n_compounds = compound_emb.size(0)
-    n_diseases = disease_emb.size(0)
-    
-    for i in range(n_compounds):
-        for j in range(n_diseases):
-            score = all_scores[i, j].item()
-            predictions.append((f"Compound_{i}", f"Disease_{j}", score))
-    
-    # Filtrar predicciones conocidas (edges en train/val)
-    # (En una implementación real, usaríamos los IDs reales)
-    
-    # Analizar predicciones
+    num_src, num_dst = all_scores.shape
+    for i in range(num_src):
+        for j in range(num_dst):
+            if (i, j) in known_edges:
+                continue
+            src_id = src_names.get(i, f"{src_type}_{i}")
+            dst_id = dst_names.get(j, f"{dst_type}_{j}")
+            predictions.append((src_id, dst_id, float(all_scores[i, j].item())))
+
     analysis = analyze_predictions(predictions, top_k=50)
-    
-    # Generar reporte
     report = format_predictions_report(analysis)
-    print(report)
-    
-    # Guardar
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    
-    with open(Path(output_dir) / 'predictions_report.txt', 'w') as f:
-        f.write(report)
-    
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "predictions_report.txt").write_text(report, encoding="utf-8")
+
     save_results_json(
         {
-            'top_predictions': analysis['top_predictions'][:100],
-            'score_distribution': analysis['score_distribution'],
-            'num_predictions': analysis['num_total_predictions']
+            "checkpoint_path": checkpoint_path,
+            "encoder_type": encoder_type,
+            "decoder_type": decoder_type,
+            "target_edge_type": list(target_edge_type),
+            "top_predictions": analysis["top_predictions"][:100],
+            "score_distribution": analysis["score_distribution"],
+            "num_predictions": analysis["num_total_predictions"],
         },
-        str(Path(output_dir) / 'predictions_analysis.json')
+        str(out_dir / "predictions_analysis.json"),
     )
-    
-    logger.info(f"Análisis guardado en: {output_dir}")
-    
+
+    logger.info(f"Análisis guardado en: {out_dir}")
+    print(report)
     return analysis
 
 
-# =============================================================================
-# INTERFAZ DE LÍNEA DE COMANDOS
-# =============================================================================
+# -----------------------------------------------------------------------------
+# CLI
+# -----------------------------------------------------------------------------
 
 def parse_args():
-    """Parser de argumentos de línea de comandos."""
     parser = argparse.ArgumentParser(
-        description='Drug Repurposing mediante Graph Neural Networks',
+        description="Drug Repurposing mediante Graph Neural Networks",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Ejemplos de uso:
-----------------
-  # Test rápido con datos sintéticos
+Ejemplos:
   python main.py --mode quick
-  
-  # Experimento único con R-GCN + DistMult
   python main.py --mode single --encoder rgcn --decoder distmult
-  
-  # Estudio de ablación completo
-  python main.py --mode ablation --seeds 42 123 456
-  
-  # Análisis de predicciones de un modelo guardado
+  python main.py --mode single --encoder graphsage --decoder mlp --synthetic
+  python main.py --mode ablation --seeds 42 43 44
   python main.py --mode analyze --checkpoint results/exp/final_model.pt
-        """
+        """,
     )
-    
-    # Modo de ejecución
+
     parser.add_argument(
-        '--mode',
+        "--mode",
         type=str,
-        choices=['quick', 'single', 'ablation', 'analyze'],
-        default='quick',
-        help='Modo de ejecución (default: quick)'
+        choices=["quick", "single", "ablation", "analyze"],
+        default="quick",
+        help="Modo de ejecución",
     )
-    
-    # Configuración del modelo
     parser.add_argument(
-        '--encoder',
+        "--encoder",
         type=str,
-        choices=ENCODER_TYPES,
-        default='rgcn',
-        help='Tipo de encoder GNN (default: rgcn)'
+        choices=ENCODER_CHOICES,
+        default="rgcn",
+        help="Tipo de encoder",
     )
-    
     parser.add_argument(
-        '--decoder',
+        "--decoder",
         type=str,
-        choices=DECODER_TYPES,
-        default='distmult',
-        help='Tipo de decoder (default: distmult)'
+        choices=DECODER_CHOICES,
+        default="distmult",
+        help="Tipo de decoder",
     )
-    
-    # Datos
     parser.add_argument(
-        '--synthetic',
-        action='store_true',
-        help='Usar datos sintéticos (más rápido para testing)'
+        "--synthetic",
+        action="store_true",
+        help="Usar dataset sintético",
     )
-    
-    # Reproducibilidad
     parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
         default=42,
-        help='Semilla para reproducibilidad (default: 42)'
+        help="Semilla",
     )
-    
     parser.add_argument(
-        '--seeds',
+        "--seeds",
         type=int,
-        nargs='+',
-        default=[42, 123, 456],
-        help='Semillas para estudio de ablación (default: 42 123 456)'
+        nargs="+",
+        default=[42, 43, 44],
+        help="Semillas para ablación",
     )
-    
-    # Paths
     parser.add_argument(
-        '--output-dir',
+        "--checkpoint",
         type=str,
-        default='results',
-        help='Directorio de salida (default: results)'
+        default=None,
+        help="Ruta a checkpoint para modo analyze",
     )
-    
     parser.add_argument(
-        '--checkpoint',
+        "--output-dir",
         type=str,
-        help='Path al checkpoint para modo analyze'
+        default="results",
+        help="Directorio de salida",
     )
-    
-    # Logging
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Mostrar logs de debug'
-    )
-    
+
     return parser.parse_args()
 
 
 def main():
-    """Función principal."""
     args = parse_args()
-    
-    # Configurar logging
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    setup_logging(log_level=log_level)
-    
-    logger = logging.getLogger('DrugRepurposingGNN')
-    
-    # Banner
+
     print("\n" + "=" * 60)
     print(" DRUG REPURPOSING mediante GRAPH NEURAL NETWORKS")
     print(" Proyecto de Geometric Deep Learning")
     print("=" * 60 + "\n")
-    
-    # Ejecutar según modo
-    if args.mode == 'quick':
+
+    if args.mode == "quick":
+        logger = setup_logging()
         logger.info("Modo: Test rápido")
-        results = run_quick_test(
-            output_dir=str(Path(args.output_dir) / 'quick_test')
-        )
-        
-    elif args.mode == 'single':
+        run_quick_test(output_dir=str(Path(args.output_dir) / "quick_test"))
+
+    elif args.mode == "single":
+        logger = setup_logging()
         logger.info("Modo: Experimento único")
-        results = run_single_experiment(
+        run_single_experiment(
             encoder_type=args.encoder,
             decoder_type=args.decoder,
             use_synthetic=args.synthetic,
             seed=args.seed,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
         )
-        
-    elif args.mode == 'ablation':
+
+    elif args.mode == "ablation":
+        logger = setup_logging()
         logger.info("Modo: Estudio de ablación")
-        results = run_ablation_study(
+        run_ablation_study(
             seeds=args.seeds,
             use_synthetic=args.synthetic,
-            output_dir=str(Path(args.output_dir) / 'ablation')
+            output_dir=str(Path(args.output_dir) / "ablation"),
         )
-        
-    elif args.mode == 'analyze':
+
+    elif args.mode == "analyze":
+        logger = setup_logging()
         logger.info("Modo: Análisis de predicciones")
         if not args.checkpoint:
-            logger.error("Se requiere --checkpoint para modo analyze")
-            sys.exit(1)
-        results = analyze_model_predictions(
+            raise ValueError("Debes proporcionar --checkpoint en modo analyze")
+        analyze_model_predictions(
             checkpoint_path=args.checkpoint,
-            output_dir=str(Path(args.output_dir) / 'analysis')
+            output_dir=str(Path(args.output_dir) / "analysis"),
         )
-    
-    print("\n" + "=" * 60)
-    print(" Ejecución completada!")
-    print("=" * 60 + "\n")
-    
-    return results
 
+    else:
+        raise ValueError(f"Modo desconocido: {args.mode}")
 
-# =============================================================================
-# PUNTO DE ENTRADA
-# =============================================================================
 
 if __name__ == "__main__":
     main()

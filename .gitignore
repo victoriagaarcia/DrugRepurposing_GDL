@@ -1,0 +1,6 @@
+data/
+checkpoints/
+.venv/
+.git/
+__pycache__/
+results/
