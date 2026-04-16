@@ -257,28 +257,71 @@ class HetionetDataLoader:
         edges_by_type: Dict[Tuple, List[Tuple[int, int]]] = defaultdict(list)
         
         for edge in data.get("edges", []):
-            sample_edges = data.get("edges", [])[:3]
-            print("\nMUESTRA DE ARISTAS REALES:")
-            for i, e in enumerate(sample_edges):
-                print(f"Edge {i}: {e}")
-            source_id = edge.get("source", "")
-            target_id = edge.get("target", "")
-            
-            # Extraer tipo de nodo del identificador o usar campo explícito
-            if "source_kind" in edge:
+            # sample_edges = data.get("edges", [])[:3]
+            # print("\nMUESTRA DE ARISTAS REALES:")
+            # for i, e in enumerate(sample_edges):
+            #     print(f"Edge {i}: {e}")
+
+            src_type = None
+            dst_type = None
+            source_id = None
+            target_id = None
+
+            # CASO 1: formato sintético o enriquecido
+            if "source_kind" in edge and "target_kind" in edge:
                 src_type = edge["source_kind"]
                 dst_type = edge["target_kind"]
+                source_id = edge.get("source", "")
+                target_id = edge.get("target", "")
                 relation = edge.get("relation", edge.get("kind", "related"))
+
+            # CASO 2: formato real de Hetionet
+            elif "source_id" in edge and "target_id" in edge:
+                src_info = edge["source_id"]   # ej. ["Anatomy", "UBERON:0000178"]
+                dst_info = edge["target_id"]   # ej. ["Gene", 9489]
+
+                if isinstance(src_info, list) and len(src_info) == 2:
+                    src_type = src_info[0]
+                    source_id = src_info[1]
+
+                if isinstance(dst_info, list) and len(dst_info) == 2:
+                    dst_type = dst_info[0]
+                    target_id = dst_info[1]
+
+                relation = edge.get("kind", "related")
+
+            # CASO 3: fallback antiguo
             else:
-                # En Hetionet, el identifier tiene formato "tipo::nombre"
-                # o el kind del edge indica la relación
-                src_type = source_id.split("::")[0] if "::" in source_id else None
-                dst_type = target_id.split("::")[0] if "::" in target_id else None
-                
-                # El kind del edge en Hetionet es como "CtD" (Compound-treats-Disease)
-                # Necesitamos parsearlo
+                source_id = edge.get("source", "")
+                target_id = edge.get("target", "")
+
+                src_type = source_id.split("::")[0] if isinstance(source_id, str) and "::" in source_id else None
+                dst_type = target_id.split("::")[0] if isinstance(target_id, str) and "::" in target_id else None
+
                 edge_kind = edge.get("kind", "")
                 relation = self._parse_edge_kind(edge_kind)
+
+            # Verificar tipos
+            if src_type not in self.node_types or dst_type not in self.node_types:
+                continue
+
+            # Verificar ids
+            if source_id not in self.node_to_idx.get(src_type, {}):
+                continue
+            if target_id not in self.node_to_idx.get(dst_type, {}):
+                continue
+
+            src_idx = self.node_to_idx[src_type][source_id]
+            dst_idx = self.node_to_idx[dst_type][target_id]
+
+            # Agregar arista
+            edge_type = (src_type, relation, dst_type)
+            edges_by_type[edge_type].append((src_idx, dst_idx))
+
+            # Si es bidireccional, agregar la inversa
+            if edge.get("direction", "forward") == "both":
+                reverse_type = (dst_type, f"{relation}_rev", src_type)
+                edges_by_type[reverse_type].append((dst_idx, src_idx))
             
             # Verificar que ambos tipos de nodo están en nuestra lista
             if src_type not in self.node_types or dst_type not in self.node_types:
@@ -455,6 +498,10 @@ class HetionetDataLoader:
                 # Usar el primer edge type disponible para demo
                 target = list(data.edge_types)[0]
                 print(f"Usando: {target}")
+                raise ValueError(
+                    f"Edge type objetivo {target} no encontrado. "
+                    f"Disponibles: {list(data.edge_types)}"
+                )
         
         # RandomLinkSplit de PyG
         # Divide las aristas del tipo especificado en train/val/test
