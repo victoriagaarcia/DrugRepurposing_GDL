@@ -67,6 +67,8 @@ aristas que realmente existen (aunque sean de train).
 """
 
 import torch
+import torch.nn as nn
+from torch_geometric.data import HeteroData
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from sklearn.metrics import roc_auc_score, average_precision_score
@@ -96,68 +98,6 @@ class LinkPredictionEvaluator:
         """
         self.hits_k_values = hits_k_values
         self.filtered = filtered
-    
-    def compute_ranking_metrics(
-        self,
-        positive_scores: torch.Tensor,
-        negative_scores: torch.Tensor,
-    ) -> Dict[str, float]:
-        """
-        Calcula métricas de ranking para un conjunto de predicciones.
-        
-        Para cada arista positiva, comparamos su score con los de negativos
-        y calculamos su posición en el ranking.
-        
-        ALGORITMO:
-        1. Para cada positivo i:
-           a. Contar cuántos negativos tienen score >= score_positivo
-           b. rank_i = 1 + count (1-indexed)
-        2. Calcular métricas agregadas sobre todos los ranks
-        
-        Args:
-            positive_scores: Scores de aristas positivas [num_pos]
-            negative_scores: Scores de aristas negativas [num_neg] o [num_pos, num_neg_per_pos]
-            
-        Returns:
-            Diccionario con métricas
-        """
-        positive_scores = positive_scores.detach().cpu().numpy()
-        negative_scores = negative_scores.detach().cpu().numpy()
-        
-        # Si negative_scores es 2D, cada fila corresponde a un positivo
-        if len(negative_scores.shape) == 2:
-            # Caso: num_neg diferentes por cada positivo
-            ranks = []
-            for i, pos_score in enumerate(positive_scores):
-                neg_scores = negative_scores[i]
-                # Rank = 1 + número de negativos con score >= positivo
-                rank = 1 + np.sum(neg_scores >= pos_score)
-                ranks.append(rank)
-            ranks = np.array(ranks)
-        else:
-            # Caso: todos los positivos comparten los mismos negativos
-            # Expandir para comparar cada positivo con todos los negativos
-            # positive_scores: [num_pos], negative_scores: [num_neg]
-            # Comparar: [num_pos, 1] vs [1, num_neg]
-            comparison = negative_scores[None, :] >= positive_scores[:, None]
-            ranks = 1 + comparison.sum(axis=1)
-        
-        # Calcular métricas
-        metrics = {}
-        
-        # MRR (Mean Reciprocal Rank)
-        mrr = np.mean(1.0 / ranks)
-        metrics['MRR'] = float(mrr)
-        
-        # Mean Rank (para referencia)
-        metrics['Mean_Rank'] = float(np.mean(ranks))
-        
-        # Hits@K
-        for k in self.hits_k_values:
-            hits_at_k = np.mean(ranks <= k)
-            metrics[f'Hits@{k}'] = float(hits_at_k)
-        
-        return metrics
     
     def compute_classification_metrics(
         self,
@@ -198,7 +138,91 @@ class LinkPredictionEvaluator:
             metrics['AP'] = 0.0
         
         return metrics
-    
+
+    def _build_known_edges_by_src(
+        self,
+        edge_label_index: torch.Tensor,
+        edge_label: torch.Tensor,
+        existing_edges: Optional[torch.Tensor] = None,
+    ) -> Dict[int, set]:
+        """
+        Construye mapa src -> {dst conocidos verdaderos} para filtered ranking.
+        Si existing_edges viene informado, se usa como fuente principal.
+        Si no, fallback a positivos de edge_label_index.
+        """
+        known_by_src: Dict[int, set] = {}
+
+        if existing_edges is not None:
+            edges = existing_edges
+        else:
+            pos_mask = edge_label == 1
+            edges = edge_label_index[:, pos_mask]
+
+        if edges.numel() == 0:
+            return known_by_src
+
+        edges_cpu = edges.detach().cpu()
+        for i in range(edges_cpu.size(1)):
+            s = int(edges_cpu[0, i].item())
+            d = int(edges_cpu[1, i].item())
+            if s not in known_by_src:
+                known_by_src[s] = set()
+            known_by_src[s].add(d)
+
+        return known_by_src
+
+    def _compute_full_ranking_metrics(
+        self,
+        model,
+        h_src: torch.Tensor,
+        h_dst: torch.Tensor,
+        pos_edge_index: torch.Tensor,
+        known_by_src: Dict[int, set],
+    ) -> Dict[str, float]:
+        """
+        Ranking estándar:
+        para cada positivo (src, dst_true), rankea dst_true contra todos los dst.
+        Si filtered=True, excluye dst conocidos para ese src excepto dst_true.
+        """
+        device = h_src.device
+        num_dst = h_dst.size(0)
+        num_pos = pos_edge_index.size(1)
+
+        ranks = []
+
+        for i in tqdm(range(num_pos), desc="Ranking eval", leave=False):
+            src_idx = int(pos_edge_index[0, i].item())
+            true_dst_idx = int(pos_edge_index[1, i].item())
+
+            src_emb = h_src[src_idx : src_idx + 1]  # [1, d]
+            all_scores = model.decoder.forward_all(src_emb, h_dst).squeeze(0)  # [num_dst]
+            true_score = all_scores[true_dst_idx]
+
+            if self.filtered:
+                mask = torch.ones(num_dst, dtype=torch.bool, device=device)
+                for known_dst in known_by_src.get(src_idx, ()):
+                    if known_dst != true_dst_idx and 0 <= known_dst < num_dst:
+                        mask[known_dst] = False
+                candidate_scores = all_scores[mask]
+            else:
+                candidate_scores = all_scores
+
+            # Rank con criterio estricto ">" (evita contar el propio true como competidor)
+            rank = 1 + (candidate_scores > true_score).sum().item()
+            ranks.append(rank)
+
+        ranks = np.asarray(ranks, dtype=np.float64)
+
+        metrics = {
+            "MRR": float(np.mean(1.0 / ranks)),
+            "Mean_Rank": float(np.mean(ranks)),
+        }
+
+        for k in self.hits_k_values:
+            metrics[f"Hits@{k}"] = float(np.mean(ranks <= k))
+
+        return metrics
+
     def evaluate(
         self,
         model,
@@ -208,89 +232,63 @@ class LinkPredictionEvaluator:
         src_type: str = "Compound",
         dst_type: str = "Disease",
         batch_size: int = 1024,
-        existing_edges: Optional[torch.Tensor] = None
+        existing_edges: Optional[torch.Tensor] = None,
     ) -> Dict[str, float]:
-        """
-        Evaluación completa del modelo.
-        
-        PROCESO:
-        1. Obtener embeddings de todos los nodos
-        2. Para cada batch de aristas de test:
-           a. Calcular scores de positivos
-           b. Generar y puntuar negativos
-           c. Calcular rankings
-        3. Agregar métricas
-        
-        Args:
-            model: Modelo a evaluar
-            data: Datos del grafo
-            edge_label_index: Índices de aristas [2, num_edges]
-            edge_label: Labels de aristas [num_edges]
-            src_type: Tipo de nodo fuente
-            dst_type: Tipo de nodo destino
-            batch_size: Tamaño del batch para evaluación
-            existing_edges: Aristas existentes para filtrar (opcional)
-            
-        Returns:
-            Diccionario con todas las métricas
-        """
         model.eval()
         device = next(model.parameters()).device
-        
-        # Mover datos a device
+
         data = data.to(device)
         edge_label_index = edge_label_index.to(device)
         edge_label = edge_label.to(device)
-        
-        # Separar positivos y negativos
+
         pos_mask = edge_label == 1
-        neg_mask = edge_label == 0
-        
         pos_edge_index = edge_label_index[:, pos_mask]
-        neg_edge_index = edge_label_index[:, neg_mask]
-        
+
         with torch.no_grad():
-            # Obtener embeddings
             h_dict = model.get_embeddings(data)
             h_src = h_dict[src_type]
             h_dst = h_dict[dst_type]
-            
-            # Calcular scores para positivos y negativos
+
+            # Clasificación (AUC/AP) con edge_label_index recibido
             all_scores = []
             all_labels = []
-            
+
             num_edges = edge_label_index.size(1)
             for start in range(0, num_edges, batch_size):
                 end = min(start + batch_size, num_edges)
                 batch_edge_index = edge_label_index[:, start:end]
                 batch_labels = edge_label[start:end]
-                
-                # Embeddings del batch
+
                 batch_h_src = h_src[batch_edge_index[0]]
                 batch_h_dst = h_dst[batch_edge_index[1]]
-                
-                # Scores
+
                 batch_scores = model.decode(batch_h_src, batch_h_dst)
-                
+
                 all_scores.append(batch_scores)
                 all_labels.append(batch_labels)
-            
+
             all_scores = torch.cat(all_scores)
             all_labels = torch.cat(all_labels)
-            
-            # Métricas de clasificación
-            metrics = self.compute_classification_metrics(all_scores, all_labels)
-            
-            # Métricas de ranking
-            pos_scores = all_scores[pos_mask]
-            neg_scores = all_scores[neg_mask]
-            
-            if len(pos_scores) > 0 and len(neg_scores) > 0:
-                ranking_metrics = self.compute_ranking_metrics(pos_scores, neg_scores)
-                metrics.update(ranking_metrics)
-        
-        return metrics
 
+            metrics = self.compute_classification_metrics(all_scores, all_labels)
+
+            # Ranking estándar por consulta
+            if pos_edge_index.size(1) > 0:
+                known_by_src = self._build_known_edges_by_src(
+                    edge_label_index=edge_label_index,
+                    edge_label=edge_label,
+                    existing_edges=existing_edges,
+                )
+                ranking_metrics = self._compute_full_ranking_metrics(
+                    model=model,
+                    h_src=h_src,
+                    h_dst=h_dst,
+                    pos_edge_index=pos_edge_index,
+                    known_by_src=known_by_src,
+                )
+                metrics.update(ranking_metrics)
+
+        return metrics
 
 def evaluate_full_ranking(
     model,
@@ -426,26 +424,76 @@ def format_metrics(metrics: Dict[str, float]) -> str:
 
 
 if __name__ == "__main__":
-    # Test del evaluador
     print("Testing LinkPredictionEvaluator...")
-    
-    # Scores simulados
-    pos_scores = torch.tensor([0.9, 0.8, 0.7, 0.6, 0.5])
-    neg_scores = torch.tensor([0.4, 0.3, 0.2, 0.1, 0.05])
-    
-    evaluator = LinkPredictionEvaluator(hits_k_values=[1, 3, 5])
-    
-    # Test ranking metrics
-    metrics = evaluator.compute_ranking_metrics(pos_scores, neg_scores)
-    print("\nRanking metrics (todos positivos deberían estar en top-5):")
-    for k, v in metrics.items():
-        print(f"  {k}: {v:.4f}")
-    
-    # Test classification metrics
-    all_scores = torch.cat([pos_scores, neg_scores])
-    all_labels = torch.cat([torch.ones(5), torch.zeros(5)])
-    
+
+    evaluator = LinkPredictionEvaluator(hits_k_values=[1, 3, 5], filtered=True)
+
+    # 1) Test de métricas de clasificación (se mantiene)
+    all_scores = torch.tensor([0.9, 0.8, 0.2, 0.1, 0.6, 0.3], dtype=torch.float32)
+    all_labels = torch.tensor([1, 1, 0, 0, 1, 0], dtype=torch.long)
     class_metrics = evaluator.compute_classification_metrics(all_scores, all_labels)
     print("\nClassification metrics:")
     for k, v in class_metrics.items():
         print(f"  {k}: {v:.4f}")
+
+    # 2) Test end-to-end de evaluate() con ranking completo + filtered
+    class DummyDecoder(nn.Module):
+        def forward(self, h_src, h_dst):
+            return (h_src * h_dst).sum(dim=-1)
+
+        def forward_all(self, h_src, h_dst):
+            return torch.matmul(h_src, h_dst.t())
+
+    class DummyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self._anchor = nn.Parameter(torch.tensor(0.0))  # para tener device
+            self.decoder = DummyDecoder()
+
+        def get_embeddings(self, data):
+            return {
+                "Compound": data["Compound"].x,
+                "Disease": data["Disease"].x,
+            }
+
+        def decode(self, h_src, h_dst):
+            return self.decoder.forward(h_src, h_dst)
+
+    data = HeteroData()
+    data["Compound"].x = torch.randn(3, 8)
+    data["Disease"].x = torch.randn(4, 8)
+
+    # edge_label_index: 2 positivos + 3 negativos
+    edge_label_index = torch.tensor(
+        [
+            [0, 1, 0, 1, 2],  # src
+            [1, 2, 3, 0, 1],  # dst
+        ],
+        dtype=torch.long,
+    )
+    edge_label = torch.tensor([1, 1, 0, 0, 0], dtype=torch.long)
+
+    # Aristas verdaderas conocidas para filtered (train/val/test positivas conocidas)
+    existing_edges = torch.tensor(
+        [
+            [0, 1, 1],  # src
+            [1, 2, 0],  # dst
+        ],
+        dtype=torch.long,
+    )
+
+    model = DummyModel()
+
+    metrics = evaluator.evaluate(
+        model=model,
+        data=data,
+        edge_label_index=edge_label_index,
+        edge_label=edge_label,
+        src_type="Compound",
+        dst_type="Disease",
+        batch_size=16,
+        existing_edges=existing_edges,
+    )
+
+    print("\nEnd-to-end evaluate() metrics:")
+    print(format_metrics(metrics))

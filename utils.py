@@ -155,7 +155,8 @@ def setup_logging(
         level=log_level,
         format=log_format,
         datefmt=date_format,
-        handlers=handlers
+        handlers=handlers,
+        force=True  # Sobrescribe configuraciones previas
     )
     
     logger = logging.getLogger('DrugRepurposingGNN')

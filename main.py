@@ -326,6 +326,9 @@ def run_single_experiment(
         negative_ratio=max(1, config.training.negative_sampling_ratio),
     )
 
+    known_edge_type = resolve_target_edge_type(data, target_edge_type)
+    known_edges = data[known_edge_type].edge_index.to(torch.device(config.training.device))
+
     with Timer("Evaluación", logger):
         test_metrics = evaluator.evaluate(
             model=trained_model,
@@ -335,6 +338,7 @@ def run_single_experiment(
             src_type=target_edge_type[0],
             dst_type=target_edge_type[2],
             batch_size=config.training.batch_size,
+            existing_edges=known_edges,
         )
 
     logger.info("\n" + "=" * 60)
@@ -431,6 +435,7 @@ def run_ablation_study(
         results = study.run_full_study(
             encoder_types=encoder_types,
             decoder_type="distmult",
+            seeds=seeds
         )
 
     analysis_text = study.analyze_results()
@@ -465,6 +470,8 @@ def analyze_model_predictions(
     config = get_config()
     config = apply_config_dict(config, checkpoint.get("config", {}))
     config.training.device = device.type
+
+    set_seed(config.seed)
 
     encoder_type = normalize_encoder_name(checkpoint.get("encoder_type", "rgcn"))
     decoder_type = normalize_decoder_name(checkpoint.get("decoder_type", "distmult"))

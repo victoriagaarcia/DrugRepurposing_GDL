@@ -189,6 +189,14 @@ class Trainer:
 
         edge_label_index, edge_label = self.get_edge_data(self.val_data, "val")
 
+        # Pasamos como existing edges aristas verdaderas de train y positivos de val
+        existing_edges = self.train_data[self.target_edge_type].edge_index
+        if hasattr(self.val_data[self.target_edge_type], "edge_label_index") and hasattr(self.val_data[self.target_edge_type], "edge_label"):
+            val_pos_mask = self.val_data[self.target_edge_type].edge_label == 1
+            val_pos_edges = self.val_data[self.target_edge_type].edge_label_index[:, val_pos_mask]
+            existing_edges = torch.cat([existing_edges, val_pos_edges], dim=1)
+            existing_edges = torch.unique(existing_edges, dim=1)
+
         metrics = self.evaluator.evaluate(
             model=self.model,
             data=self.val_data,
@@ -197,6 +205,7 @@ class Trainer:
             src_type=self.src_type,
             dst_type=self.dst_type,
             batch_size=self.config.training.batch_size,
+            existing_edges=existing_edges,
         )
         return metrics
 

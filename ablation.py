@@ -59,7 +59,7 @@ INTERPRETACIÓN:
 
 import os
 import json
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 import numpy as np
 
@@ -187,6 +187,8 @@ class AblationStudy:
                                    device=exp_config.training.device)
         
         try:
+            known_edges = data[target_edge_type].edge_index.to(exp_config.training.device)
+
             metrics = evaluator.evaluate(
                 model=model,
                 data=test_data,
@@ -194,7 +196,8 @@ class AblationStudy:
                 edge_label=edge_label,
                 src_type=target_edge_type[0],
                 dst_type=target_edge_type[2],
-                batch_size=exp_config.training.batch_size
+                batch_size=exp_config.training.batch_size,
+                existing_edges=known_edges
             )
         except Exception as e:
             print(f"Error en evaluación: {e}")
@@ -215,7 +218,8 @@ class AblationStudy:
     def run_full_study(
         self,
         encoder_types: List[str] = ["rgcn", "han", "sage"],
-        decoder_type: str = "distmult"
+        decoder_type: str = "distmult",
+        seeds: Optional[List[int]] = None,
     ) -> Dict[str, Dict]:
         """
         Ejecuta el estudio de ablación completo.
@@ -237,7 +241,8 @@ class AblationStudy:
         print("="*60)
         
         ablation_configs = self.config.ablation.ablation_configs
-        num_runs = self.config.ablation.num_runs
+        # num_runs = self.config.ablation.num_runs
+        seeds = seeds if seeds is not None else [self.config.seed + i for i in range(self.config.ablation.num_runs)]
         
         all_results = {}
         

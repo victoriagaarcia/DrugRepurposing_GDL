@@ -337,15 +337,6 @@ class HetionetDataLoader:
                 dst_idx = self.node_to_idx[dst_type][target_id]
             else:
                 continue
-            
-            # Agregar arista
-            edge_type = (src_type, relation, dst_type)
-            edges_by_type[edge_type].append((src_idx, dst_idx))
-            
-            # Si es bidireccional, agregar la inversa
-            if edge.get("direction", "forward") == "both":
-                reverse_type = (dst_type, f"{relation}_rev", src_type)
-                edges_by_type[reverse_type].append((dst_idx, src_idx))
         
         print(f"Nodos parseados por tipo:")
         for node_type in self.node_types:
