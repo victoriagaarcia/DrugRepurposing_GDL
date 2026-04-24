@@ -241,8 +241,8 @@ class AblationStudy:
         print("="*60)
         
         ablation_configs = self.config.ablation.ablation_configs
-        # num_runs = self.config.ablation.num_runs
-        seeds = seeds if seeds is not None else [self.config.seed + i for i in range(self.config.ablation.num_runs)]
+        num_runs = self.config.ablation.num_runs
+        seeds = seeds if seeds is not None else [self.config.seed + i for i in range(num_runs)]
         
         all_results = {}
         
@@ -256,7 +256,7 @@ class AblationStudy:
                 encoder_results = []
                 
                 for run in range(num_runs):
-                    seed = self.config.seed + run
+                    seed = seeds[run] if run < len(seeds) else self.config.seed + run
                     
                     metrics = self.run_single_experiment(
                         ablation_config_name=config_name,

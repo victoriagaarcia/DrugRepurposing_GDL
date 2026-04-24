@@ -88,7 +88,7 @@ class Trainer:
             edge_label = torch.ones(edge_label_index.size(1), device=self.device)
 
             num_pos = edge_label_index.size(1)
-            num_neg = num_pos * self.config.training.negative_sampling_ratio
+            num_neg = int(num_pos * self.config.training.negative_sampling_ratio)
             neg_edge_index = self._sample_negatives(data, num_neg)
 
             edge_label_index = torch.cat([edge_label_index, neg_edge_index], dim=1)

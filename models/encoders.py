@@ -92,8 +92,7 @@ class RGCNEncoder(nn.Module):
         # Capas R-GCN reales
         self.convs = nn.ModuleList()
         for i in range(num_layers):
-            in_channels = hidden_dim if i == 0 else (out_dim if i == num_layers else hidden_dim)
-            in_channels = hidden_dim if i == 0 else (hidden_dim if i < num_layers else out_dim)
+            in_channels = hidden_dim
             out_channels = out_dim if i == num_layers - 1 else hidden_dim
 
             effective_num_bases = min(num_bases, self.num_relations) if self.num_relations > 0 else None

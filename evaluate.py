@@ -72,7 +72,6 @@ from torch_geometric.data import HeteroData
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from sklearn.metrics import roc_auc_score, average_precision_score
-from torch_geometric.data import HeteroData
 from tqdm import tqdm
 
 

@@ -261,8 +261,8 @@ class DistMultDecoder(nn.Module):
         nn.init.uniform_(self.relation_embedding, -1.0, 1.0)
         
         # Capas opcionales de transformación
-        self.src_transform = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.dst_transform = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        # self.src_transform = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        # self.dst_transform = nn.Linear(embedding_dim, embedding_dim, bias=False)
     
     def forward(
         self,
@@ -287,8 +287,8 @@ class DistMultDecoder(nn.Module):
         rel = self.relation_embedding[relation_idx]  # [embedding_dim]
         
         # Transformar embeddings
-        h_src = self.src_transform(h_src)
-        h_dst = self.dst_transform(h_dst)
+        # h_src = self.src_transform(h_src)
+        # h_dst = self.dst_transform(h_dst)
         
         # DistMult scoring: element-wise product con relación
         # h_src * rel * h_dst, sumado sobre dimensiones
@@ -318,8 +318,8 @@ class DistMultDecoder(nn.Module):
         rel = self.relation_embedding[relation_idx]  # [embedding_dim]
         
         # Transformar
-        h_src = self.src_transform(h_src)  # [num_src, d]
-        h_dst = self.dst_transform(h_dst)  # [num_dst, d]
+        # h_src = self.src_transform(h_src)  # [num_src, d]
+        # h_dst = self.dst_transform(h_dst)  # [num_dst, d]
         
         # Aplicar relación a source
         h_src_rel = h_src * rel  # [num_src, d]

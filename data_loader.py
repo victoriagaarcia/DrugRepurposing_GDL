@@ -322,21 +322,6 @@ class HetionetDataLoader:
             if edge.get("direction", "forward") == "both":
                 reverse_type = (dst_type, f"{relation}_rev", src_type)
                 edges_by_type[reverse_type].append((dst_idx, src_idx))
-            
-            # Verificar que ambos tipos de nodo están en nuestra lista
-            if src_type not in self.node_types or dst_type not in self.node_types:
-                continue
-                
-            # Obtener índices
-            if source_id in self.node_to_idx.get(src_type, {}):
-                src_idx = self.node_to_idx[src_type][source_id]
-            else:
-                continue
-                
-            if target_id in self.node_to_idx.get(dst_type, {}):
-                dst_idx = self.node_to_idx[dst_type][target_id]
-            else:
-                continue
         
         print(f"Nodos parseados por tipo:")
         for node_type in self.node_types:
