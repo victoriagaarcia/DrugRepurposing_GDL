@@ -41,7 +41,7 @@ from typing import Dict, List, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import HeteroConv, GATConv, Linear, RGCNConv, SAGEConv
+from torch_geometric.nn import HeteroConv, GATConv, RGCNConv, SAGEConv
 
 
 class RGCNEncoder(nn.Module):
@@ -66,6 +66,7 @@ class RGCNEncoder(nn.Module):
         self,
         node_types: List[str],
         edge_types: List[Tuple[str, str, str]],
+        node_counts: Dict[str, int] = None,
         hidden_dim: int = 128,
         out_dim: int = 64,
         num_layers: int = 2,
@@ -84,10 +85,16 @@ class RGCNEncoder(nn.Module):
         self.relation_to_id = {edge_type: i for i, edge_type in enumerate(edge_types)}
         self.num_relations = len(edge_types)
 
-        # Proyección inicial: dimensión de entrada variable -> hidden_dim
-        self.input_proj = nn.ModuleDict(
-            {node_type: Linear(-1, hidden_dim) for node_type in node_types}
-        )
+        # OLD: Fixed random feature projection (expects 2D float tensors)
+        # self.input_proj = nn.ModuleDict(
+        #     {node_type: Linear(-1, hidden_dim) for node_type in node_types}
+        # )
+
+        # NEW: Learnable node embeddings (expects 1D index tensors produced by data_loader)
+        self.node_embeddings = nn.ModuleDict(
+            {node_type: nn.Embedding(node_counts[node_type], hidden_dim)
+             for node_type in node_types if node_type in node_counts}
+        ) if node_counts is not None else None
 
         # Capas R-GCN reales
         self.convs = nn.ModuleList()
@@ -119,11 +126,20 @@ class RGCNEncoder(nn.Module):
             ]
         )
 
+    # OLD: Fixed input projection (expects 2D float tensors)
+    # def _project_inputs(self, x_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    #     h_dict = {}
+    #     for node_type, x in x_dict.items():
+    #         if node_type in self.input_proj:
+    #             h_dict[node_type] = self.input_proj[node_type](x)
+    #     return h_dict
+
+    # NEW: Learnable embeddings — x is a 1D LongTensor of node indices
     def _project_inputs(self, x_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         h_dict = {}
         for node_type, x in x_dict.items():
-            if node_type in self.input_proj:
-                h_dict[node_type] = self.input_proj[node_type](x)
+            if self.node_embeddings is not None and node_type in self.node_embeddings:
+                h_dict[node_type] = self.node_embeddings[node_type](x)
         return h_dict
 
     def _to_homogeneous(
@@ -262,6 +278,7 @@ class HANEncoder(nn.Module):
         self,
         node_types: List[str],
         edge_types: List[Tuple[str, str, str]],
+        node_counts: Dict[str, int] = None,
         hidden_dim: int = 128,
         out_dim: int = 64,
         num_layers: int = 2,
@@ -278,9 +295,16 @@ class HANEncoder(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
 
-        self.input_proj = nn.ModuleDict(
-            {node_type: Linear(-1, hidden_dim) for node_type in node_types}
-        )
+        # OLD: Fixed input projection (expects 2D float tensors)
+        # self.input_proj = nn.ModuleDict(
+        #     {node_type: Linear(-1, hidden_dim) for node_type in node_types}
+        # )
+
+        # NEW: Learnable node embeddings (expects 1D index tensors from data_loader)
+        self.node_embeddings = nn.ModuleDict(
+            {node_type: nn.Embedding(node_counts[node_type], hidden_dim)
+             for node_type in node_types if node_type in node_counts}
+        ) if node_counts is not None else None
 
         self.convs = nn.ModuleList()
 
@@ -296,9 +320,25 @@ class HANEncoder(nn.Module):
                 heads = num_heads
                 concat = True
 
-            conv_dict = {}
+            # OLD: single HeteroConv sums all edge-type messages with equal weight
+            # conv_dict = {}
+            # for edge_type in edge_types:
+            #     conv_dict[edge_type] = GATConv(
+            #         (in_channels, in_channels),
+            #         out_channels,
+            #         heads=heads,
+            #         concat=concat,
+            #         dropout=dropout,
+            #         add_self_loops=False,
+            #     )
+            # self.convs.append(HeteroConv(conv_dict, aggr="sum"))
+
+            # NEW: one GATConv per edge type stored in a ModuleDict so that
+            # semantic_attention can scale each relation's output before summation
+            per_edge_convs = nn.ModuleDict()
             for edge_type in edge_types:
-                conv_dict[edge_type] = GATConv(
+                key = f"{edge_type[0]}_{edge_type[1]}_{edge_type[2]}"
+                per_edge_convs[key] = GATConv(
                     (in_channels, in_channels),
                     out_channels,
                     heads=heads,
@@ -306,8 +346,7 @@ class HANEncoder(nn.Module):
                     dropout=dropout,
                     add_self_loops=False,
                 )
-
-            self.convs.append(HeteroConv(conv_dict, aggr="sum"))
+            self.convs.append(per_edge_convs)
 
         self.norms = nn.ModuleList(
             [
@@ -330,31 +369,78 @@ class HANEncoder(nn.Module):
         x_dict: Dict[str, torch.Tensor],
         edge_index_dict: Dict[Tuple[str, str, str], torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
+        # OLD: fixed projection + HeteroConv sum (semantic_attention created but never used)
+        # h_dict = {}
+        # for node_type, x in x_dict.items():
+        #     if node_type in self.input_proj:
+        #         h_dict[node_type] = self.input_proj[node_type](x)
+        #
+        # for i, conv in enumerate(self.convs):
+        #     h_dict_new = conv(h_dict, edge_index_dict)
+        #     for node_type in h_dict:
+        #         if node_type not in h_dict_new:
+        #             h_dict_new[node_type] = h_dict[node_type]
+        #     h_dict = h_dict_new
+        #     for node_type in h_dict:
+        #         h = h_dict[node_type]
+        #         if node_type in self.norms[i]:
+        #             h = self.norms[i][node_type](h)
+        #         if i < self.num_layers - 1:
+        #             h = F.elu(h)
+        #             h = F.dropout(h, p=self.dropout, training=self.training)
+        #         h_dict[node_type] = h
+        # return h_dict
+
+        # NEW: learnable embeddings + per-edge GATConv weighted by semantic attention
         h_dict = {}
         for node_type, x in x_dict.items():
-            if node_type in self.input_proj:
-                h_dict[node_type] = self.input_proj[node_type](x)
+            if self.node_embeddings is not None and node_type in self.node_embeddings:
+                h_dict[node_type] = self.node_embeddings[node_type](x)
 
-        for i, conv in enumerate(self.convs):
-            h_dict_new = conv(h_dict, edge_index_dict)
+        for i, per_edge_convs in enumerate(self.convs):
+            # Collect weighted contributions per destination node type
+            contributions: Dict[str, list] = {}
 
-            # Mantener tipos de nodo sin mensajes entrantes
+            for edge_type in self.edge_types:
+                src_type, rel, dst_type = edge_type
+                key = f"{src_type}_{rel}_{dst_type}"
+
+                if key not in per_edge_convs:
+                    continue
+                if edge_type not in edge_index_dict:
+                    continue
+                if src_type not in h_dict:
+                    continue
+
+                src_h = h_dict[src_type]
+                dst_h = h_dict.get(dst_type, src_h)
+
+                out = per_edge_convs[key]((src_h, dst_h), edge_index_dict[edge_type])
+                # Scale by learned scalar attention weight for this relation
+                w = torch.sigmoid(self.semantic_attention[key])
+                weighted_out = w * out
+
+                if dst_type not in contributions:
+                    contributions[dst_type] = []
+                contributions[dst_type].append(weighted_out)
+
+            # Sum weighted contributions; fall back to previous embedding if no messages
+            h_dict_new = {}
             for node_type in h_dict:
-                if node_type not in h_dict_new:
+                if node_type in contributions and contributions[node_type]:
+                    h_dict_new[node_type] = torch.stack(contributions[node_type]).sum(dim=0)
+                else:
                     h_dict_new[node_type] = h_dict[node_type]
 
             h_dict = h_dict_new
 
             for node_type in h_dict:
                 h = h_dict[node_type]
-
                 if node_type in self.norms[i]:
                     h = self.norms[i][node_type](h)
-
                 if i < self.num_layers - 1:
                     h = F.elu(h)
                     h = F.dropout(h, p=self.dropout, training=self.training)
-
                 h_dict[node_type] = h
 
         return h_dict
@@ -370,6 +456,7 @@ class HeteroGraphSAGEEncoder(nn.Module):
         self,
         node_types: List[str],
         edge_types: List[Tuple[str, str, str]],
+        node_counts: Dict[str, int] = None,
         hidden_dim: int = 128,
         out_dim: int = 64,
         num_layers: int = 2,
@@ -386,9 +473,16 @@ class HeteroGraphSAGEEncoder(nn.Module):
         self.dropout = dropout
         self.aggregator = aggregator
 
-        self.input_proj = nn.ModuleDict(
-            {node_type: Linear(-1, hidden_dim) for node_type in node_types}
-        )
+        # OLD: Fixed input projection (expects 2D float tensors)
+        # self.input_proj = nn.ModuleDict(
+        #     {node_type: Linear(-1, hidden_dim) for node_type in node_types}
+        # )
+
+        # NEW: Learnable node embeddings (expects 1D index tensors from data_loader)
+        self.node_embeddings = nn.ModuleDict(
+            {node_type: nn.Embedding(node_counts[node_type], hidden_dim)
+             for node_type in node_types if node_type in node_counts}
+        ) if node_counts is not None else None
 
         self.convs = nn.ModuleList()
 
@@ -425,10 +519,17 @@ class HeteroGraphSAGEEncoder(nn.Module):
         x_dict: Dict[str, torch.Tensor],
         edge_index_dict: Dict[Tuple[str, str, str], torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
+        # OLD: fixed input projection (expects 2D float tensors)
+        # h_dict = {}
+        # for node_type, x in x_dict.items():
+        #     if node_type in self.input_proj:
+        #         h_dict[node_type] = self.input_proj[node_type](x)
+
+        # NEW: learnable node embeddings (x is a 1D index tensor)
         h_dict = {}
         for node_type, x in x_dict.items():
-            if node_type in self.input_proj:
-                h_dict[node_type] = self.input_proj[node_type](x)
+            if self.node_embeddings is not None and node_type in self.node_embeddings:
+                h_dict[node_type] = self.node_embeddings[node_type](x)
 
         for i, conv in enumerate(self.convs):
             h_dict_new = conv(h_dict, edge_index_dict)
@@ -460,6 +561,7 @@ def get_encoder(
     node_types: List[str],
     edge_types: List[Tuple[str, str, str]],
     config,
+    node_counts: Dict[str, int] = None,
 ) -> nn.Module:
     """
     Factory function para crear encoders.
@@ -469,6 +571,7 @@ def get_encoder(
         node_types: Lista de tipos de nodo
         edge_types: Lista de tipos de arista
         config: Objeto de configuración
+        node_counts: Número de nodos por tipo, requerido para nn.Embedding learnable
 
     Returns:
         Instancia del encoder apropiado
@@ -479,6 +582,7 @@ def get_encoder(
         return RGCNEncoder(
             node_types=node_types,
             edge_types=edge_types,
+            node_counts=node_counts,
             hidden_dim=config.model.hidden_dim,
             out_dim=config.model.out_dim,
             num_layers=config.model.num_layers,
@@ -489,6 +593,7 @@ def get_encoder(
         return HANEncoder(
             node_types=node_types,
             edge_types=edge_types,
+            node_counts=node_counts,
             hidden_dim=config.model.hidden_dim,
             out_dim=config.model.out_dim,
             num_layers=config.model.num_layers,
@@ -499,6 +604,7 @@ def get_encoder(
         return HeteroGraphSAGEEncoder(
             node_types=node_types,
             edge_types=edge_types,
+            node_counts=node_counts,
             hidden_dim=config.model.hidden_dim,
             out_dim=config.model.out_dim,
             num_layers=config.model.num_layers,

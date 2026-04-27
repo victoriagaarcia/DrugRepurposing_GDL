@@ -410,9 +410,11 @@ class HetionetDataLoader:
                 # Usamos un índice que luego se mapea a embedding learnable
                 data[node_type].num_nodes = num_nodes
                 
-                # Podríamos inicializar con features random o aprender embeddings
-                # Aquí usamos random inicial que se refinará con el entrenamiento
-                data[node_type].x = torch.randn(num_nodes, self.config.model.hidden_dim)
+                # OLD: fixed random features (not model parameters, never updated by optimizer)
+                # data[node_type].x = torch.randn(num_nodes, self.config.model.hidden_dim)
+
+                # NEW: node indices — the encoder maps these to learnable nn.Embedding vectors
+                data[node_type].x = torch.arange(num_nodes, dtype=torch.long)
                 
         print(f"\nHeteroData creado:")
         print(f"  Tipos de nodo: {data.node_types}")

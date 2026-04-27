@@ -273,7 +273,7 @@ def get_config() -> Config:
     return Config()
 
 # Tipos válidos de encoder y decoder para CLI
-ENCODER_TYPES = ["rgcn", "han", "graphsage"]
+ENCODER_TYPES = ["rgcn", "han", "sage"]
 DECODER_TYPES = ["distmult", "dotproduct", "mlp"]
 
 if __name__ == "__main__":

@@ -83,6 +83,7 @@ class DrugRepurposingModel(nn.Module):
         self,
         node_types: List[str],
         edge_types: List[Tuple[str, str, str]],
+        node_counts: Dict[str, int] = None,
         encoder_type: str = "rgcn",
         decoder_type: str = "distmult",
         hidden_dim: int = 128,
@@ -116,7 +117,7 @@ class DrugRepurposingModel(nn.Module):
         self.encoder_type = encoder_type
         self.decoder_type = decoder_type
         self.out_dim = out_dim
-        
+
         # Crear configuración mock para el encoder
         class MockConfig:
             class model:
@@ -129,13 +130,14 @@ class DrugRepurposingModel(nn.Module):
         config.model.num_heads = num_heads
         config.model.num_bases = num_bases
         config.model.sage_aggregator = sage_aggregator
-        
+
         # Crear encoder
         self.encoder = get_encoder(
             encoder_type=encoder_type,
             node_types=node_types,
             edge_types=edge_types,
-            config=config
+            config=config,
+            node_counts=node_counts,
         )
         
         # Crear decoder
@@ -410,10 +412,12 @@ def create_model(
     """
     node_types = data.node_types
     edge_types = list(data.edge_types)
-    
+    node_counts = {nt: data[nt].num_nodes for nt in node_types}
+
     model = DrugRepurposingModel(
         node_types=node_types,
         edge_types=edge_types,
+        node_counts=node_counts,
         encoder_type=encoder_type,
         decoder_type=decoder_type,
         hidden_dim=config.model.hidden_dim,
@@ -438,9 +442,13 @@ if __name__ == "__main__":
     
     # Crear datos dummy para testing
     data = HeteroData()
-    data["Compound"].x = torch.randn(100, 128)
-    data["Disease"].x = torch.randn(50, 128)
-    data["Gene"].x = torch.randn(500, 128)
+    # OLD: data["Compound"].x = torch.randn(100, 128)
+    # OLD: data["Disease"].x  = torch.randn(50, 128)
+    # OLD: data["Gene"].x     = torch.randn(500, 128)
+    # NEW: indices for learnable nn.Embedding lookup
+    data["Compound"].x = torch.arange(100)
+    data["Disease"].x  = torch.arange(50)
+    data["Gene"].x     = torch.arange(500)
     
     data["Compound", "treats", "Disease"].edge_index = torch.randint(0, 50, (2, 200))
     data["Compound", "targets", "Gene"].edge_index = torch.randint(0, 100, (2, 500))
