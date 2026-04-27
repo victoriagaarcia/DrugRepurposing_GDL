@@ -1,0 +1,67 @@
+encoders.py — Graph Neural Network Encoders
+The encoder's job is to take the raw heterogeneous knowledge graph and produce node embeddings — dense vector representations that encode each node's identity and its neighborhood context.
+
+Three architectures are implemented, all following the same message passing paradigm (aggregate neighbors → transform → update):
+
+R-GCN (RGCNEncoder)
+What: Relational Graph Convolutional Network (Schlichtkrull et al., 2018).
+How it works: Converts the heterogeneous graph into a single homogeneous graph, assigns each edge type a numeric relation ID, and applies RGCNConv which learns a different weight matrix per relation type, compressed via a basis decomposition (num_bases) to avoid parameter explosion. After each layer, it splits results back by node type for normalization.
+Key idea: Each relation type contributes differently to a node's embedding.
+
+HAN (HANEncoder)
+What: Heterogeneous Attention Network (Wang et al., 2019), simplified.
+How it works: Uses GATConv (Graph Attention) inside HeteroConv — each neighbor gets a learned attention score, so more relevant neighbors contribute more. Multi-head attention in intermediate layers, single-head in the final layer. Includes semantic_attention weights per edge type (though used lightly here).
+Key idea: Attention at the node level to weight neighbor importance.
+
+HeteroGraphSAGE (HeteroGraphSAGEEncoder)
+What: GraphSAGE (Hamilton et al., 2017) adapted for heterogeneous graphs.
+How it works: For each node, samples and aggregates neighbor features (mean/max/etc.), then concatenates with the node's own features via SAGEConv. Uses HeteroConv to handle multiple edge types simultaneously.
+Key idea: Inductive — learns an aggregation function rather than per-node embeddings.
+All three encoders share the same interface: forward(x_dict, edge_index_dict) → h_dict (embeddings per node type), and all have a learnable input projection to normalize heterogeneous feature dimensions.
+
+---
+
+decoders.py — Link Prediction Decoders
+The decoder takes two node embeddings and outputs a scalar score predicting whether an edge exists between them (e.g., does drug X treat disease Y?).
+
+DotProductDecoder
+Formula: f(s, o) = h_s · h_o (sum of element-wise products)
+Optional projection: Learns separate linear transformations for source and target before the dot product, breaking symmetry.
+Pros: Fast, no extra parameters. Cons: Doesn't model the relation type explicitly.
+
+DistMultDecoder
+Formula: f(s, r, o) = Σ_i h_s[i] * R_r[i] * h_o[i]
+How it works: Learns a relation vector R_r (diagonal of a bilinear matrix). Each dimension gets re-weighted based on how relevant it is for the relation type. Multiple relation types are supported via num_relations.
+Pros: Interpretable, efficient. Cons: Symmetric by design (f(s,r,o) = f(o,r,s)), which is a mismatch for directed relations like "treats".
+
+MLPDecoder
+Formula: f(s, o) = MLP([h_s || h_o]) (concatenate embeddings, pass through MLP)
+How it works: Most expressive — can approximate any function. Configurable hidden layer sizes and dropout.
+Pros: Universal approximator, captures complex interactions. Cons: Slower, more prone to overfitting, harder to do all-pairs ranking efficiently.
+All decoders implement both forward(h_src, h_dst) (for specific pairs) and forward_all(h_src, h_dst) (full matrix of all pair scores, used during evaluation/ranking).
+
+---
+
+full_model.py — The Complete Pipeline
+This glues encoder and decoder together into one DrugRepurposingModel.
+
+DrugRepurposingModel
+The full pipeline:
+
+encode(x_dict, edge_index_dict) → calls the chosen encoder GNN to get h_dict (embeddings per node type)
+decode(h_src, h_dst) → calls the chosen decoder to score pairs
+forward(data, edge_label_index) → end-to-end: extract features from HeteroData, encode, index into embeddings by the edge pairs, decode to scores
+predict_all_pairs() → scores every possible drug-disease pair (for full ranking at inference)
+get_embeddings() → returns embeddings for analysis/visualization
+LinkPredictionLoss
+Two loss options:
+
+BCE with logits (default): standard binary cross-entropy, treats it as binary classification (edge exists / doesn't)
+Margin Ranking Loss: pushes positive scores above negative scores by a fixed margin m — used in TransE-style training
+The create_model() factory function automatically extracts node/edge types from a HeteroData object to initialize everything.
+
+Summary table
+Component	Role	Options
+Encoder	Graph → node embeddings	R-GCN, HAN, GraphSAGE
+Decoder	Embedding pair → edge score	DistMult, Dot Product, MLP
+Loss	Score → training signal	BCE, Margin Ranking
