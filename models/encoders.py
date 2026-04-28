@@ -261,6 +261,48 @@ class RGCNEncoder(nn.Module):
 
         return h_dict
 
+class SemanticAttention(nn.Module):
+    """
+    Atención semántica para combinar varias representaciones de un mismo tipo
+    de nodo procedentes de distintas relaciones.
+
+    Entrada:
+        z: Tensor [num_nodes, num_semantics, hidden_dim]
+
+    Salida:
+        Tensor [num_nodes, hidden_dim]
+    """
+
+    def __init__(self, in_dim: int, attn_dim: int = 128):
+        super().__init__()
+
+        self.project = nn.Sequential(
+            nn.Linear(in_dim, attn_dim),
+            nn.Tanh(),
+            nn.Linear(attn_dim, 1, bias=False),
+        )
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            z: [N, S, D]
+               N = número de nodos
+               S = número de relaciones/semánticas
+               D = dimensión del embedding
+
+        Returns:
+            h: [N, D]
+        """
+        # scores: [N, S, 1]
+        scores = self.project(z)
+
+        # alpha: [N, S, 1]
+        alpha = torch.softmax(scores, dim=1)
+
+        # combinación ponderada: [N, D]
+        h = (alpha * z).sum(dim=1)
+
+        return h
 
 class HANEncoder(nn.Module):
     """
@@ -360,10 +402,27 @@ class HANEncoder(nn.Module):
             ]
         )
 
-        self.semantic_attention = nn.ParameterDict(
-            {f"{et[0]}_{et[1]}_{et[2]}": nn.Parameter(torch.ones(1)) for et in edge_types}
-        )
+        # self.semantic_attention = nn.ParameterDict(
+        #     {f"{et[0]}_{et[1]}_{et[2]}": nn.Parameter(torch.ones(1)) for et in edge_types}
+        # )
 
+        self.semantic_attention = nn.ModuleList()
+
+        for i in range(num_layers):
+            layer_dim = hidden_dim if i < num_layers - 1 else out_dim
+
+            self.semantic_attention.append(
+                nn.ModuleDict(
+                    {
+                        node_type: SemanticAttention(
+                            in_dim=layer_dim,
+                            attn_dim=hidden_dim,
+                        )
+                        for node_type in node_types
+                    }
+                )
+            )
+            
     def forward(
         self,
         x_dict: Dict[str, torch.Tensor],
@@ -415,23 +474,42 @@ class HANEncoder(nn.Module):
                 src_h = h_dict[src_type]
                 dst_h = h_dict.get(dst_type, src_h)
 
+                # out = per_edge_convs[key]((src_h, dst_h), edge_index_dict[edge_type])
+                # # Scale by learned scalar attention weight for this relation
+                # w = torch.sigmoid(self.semantic_attention[key])
+                # weighted_out = w * out
+
+                # if dst_type not in contributions:
+                #     contributions[dst_type] = []
+                # contributions[dst_type].append(weighted_out)
                 out = per_edge_convs[key]((src_h, dst_h), edge_index_dict[edge_type])
-                # Scale by learned scalar attention weight for this relation
-                w = torch.sigmoid(self.semantic_attention[key])
-                weighted_out = w * out
 
                 if dst_type not in contributions:
                     contributions[dst_type] = []
-                contributions[dst_type].append(weighted_out)
+
+                contributions[dst_type].append(out)
 
             # Sum weighted contributions; fall back to previous embedding if no messages
+            # h_dict_new = {}
+            # for node_type in h_dict:
+            #     if node_type in contributions and contributions[node_type]:
+            #         h_dict_new[node_type] = torch.stack(contributions[node_type]).sum(dim=0)
+            #     else:
+            #         h_dict_new[node_type] = h_dict[node_type]
+            
             h_dict_new = {}
+
             for node_type in h_dict:
                 if node_type in contributions and contributions[node_type]:
-                    h_dict_new[node_type] = torch.stack(contributions[node_type]).sum(dim=0)
+                    # contributions[node_type] es una lista de tensores [N, D]
+                    # Queremos [N, S, D]
+                    z = torch.stack(contributions[node_type], dim=1)
+
+                    # Aplicamos atención semántica de esta capa y tipo de nodo
+                    h_dict_new[node_type] = self.semantic_attention[i][node_type](z)
                 else:
                     h_dict_new[node_type] = h_dict[node_type]
-
+                    
             h_dict = h_dict_new
 
             for node_type in h_dict:
