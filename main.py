@@ -205,6 +205,7 @@ def sample_negative_edges(
             if (src, dst) not in existing_edges:
                 neg_src.append(src)
                 neg_dst.append(dst)
+                existing_edges.add((src, dst))  # Evitar duplicados
                 if len(neg_src) >= num_samples:
                     break
 

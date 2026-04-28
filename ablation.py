@@ -171,7 +171,8 @@ class AblationStudy:
         # Evaluar en test
         print("\nEvaluando en conjunto de test...")
         evaluator = LinkPredictionEvaluator(
-            hits_k_values=self.config.evaluation.hits_k_values
+            hits_k_values=self.config.evaluation.hits_k_values,
+            filtered=self.config.evaluation.filtered
         )
         
         # Obtener datos de test
