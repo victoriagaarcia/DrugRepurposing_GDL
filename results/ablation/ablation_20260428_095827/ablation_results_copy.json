@@ -1,0 +1,713 @@
+{
+  "full": {
+    "rgcn": [
+      {
+        "AUC-ROC": 0.9828977777777778,
+        "AP": 0.9628857412086426,
+        "MRR": 0.6116845055011348,
+        "Mean_Rank": 6.84,
+        "Hits@1": 0.49333333333333335,
+        "Hits@3": 0.6666666666666666,
+        "Hits@10": 0.88,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9854933333333333,
+        "AP": 0.9324379744225203,
+        "MRR": 0.5861292351355599,
+        "Mean_Rank": 9.48,
+        "Hits@1": 0.49333333333333335,
+        "Hits@3": 0.6133333333333333,
+        "Hits@10": 0.76,
+        "Hits@50": 0.96,
+        "Hits@100": 1.0,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 43
+      }
+    ],
+    "han": [
+      {
+        "AUC-ROC": 0.9638755555555556,
+        "AP": 0.9280998080778907,
+        "MRR": 0.6546884982072751,
+        "Mean_Rank": 6.72,
+        "Hits@1": 0.5733333333333334,
+        "Hits@3": 0.68,
+        "Hits@10": 0.88,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9714844444444443,
+        "AP": 0.9316876215660406,
+        "MRR": 0.5101671316171981,
+        "Mean_Rank": 9.6,
+        "Hits@1": 0.38666666666666666,
+        "Hits@3": 0.56,
+        "Hits@10": 0.7466666666666667,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.98784,
+        "AP": 0.9633526183807262,
+        "MRR": 0.6006849195129467,
+        "Mean_Rank": 8.08,
+        "Hits@1": 0.5066666666666667,
+        "Hits@3": 0.64,
+        "Hits@10": 0.7866666666666666,
+        "Hits@50": 0.96,
+        "Hits@100": 1.0,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ],
+    "sage": [
+      {
+        "AUC-ROC": 0.9632000000000001,
+        "AP": 0.8635882800981358,
+        "MRR": 0.5501698816980746,
+        "Mean_Rank": 8.56,
+        "Hits@1": 0.4533333333333333,
+        "Hits@3": 0.56,
+        "Hits@10": 0.76,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9806933333333333,
+        "AP": 0.9198134484671133,
+        "MRR": 0.43437639496104113,
+        "Mean_Rank": 11.426666666666666,
+        "Hits@1": 0.28,
+        "Hits@3": 0.5066666666666667,
+        "Hits@10": 0.7066666666666667,
+        "Hits@50": 0.96,
+        "Hits@100": 1.0,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9878399999999999,
+        "AP": 0.9538720357536206,
+        "MRR": 0.4689614586827122,
+        "Mean_Rank": 8.92,
+        "Hits@1": 0.3466666666666667,
+        "Hits@3": 0.52,
+        "Hits@10": 0.76,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "full",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene",
+          "Anatomy"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ]
+  },
+  "no_anatomy": {
+    "rgcn": [
+      {
+        "AUC-ROC": 0.9681777777777778,
+        "AP": 0.9223788502794193,
+        "MRR": 0.6043898925282822,
+        "Mean_Rank": 7.8,
+        "Hits@1": 0.48,
+        "Hits@3": 0.6533333333333333,
+        "Hits@10": 0.8666666666666667,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 0.9733333333333334,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9890844444444445,
+        "AP": 0.9694575735902149,
+        "MRR": 0.5859449348822786,
+        "Mean_Rank": 7.2,
+        "Hits@1": 0.48,
+        "Hits@3": 0.64,
+        "Hits@10": 0.8133333333333334,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 43
+      }
+    ],
+    "han": [
+      {
+        "AUC-ROC": 0.9759288888888888,
+        "AP": 0.9450507419210185,
+        "MRR": 0.6508738912482447,
+        "Mean_Rank": 6.746666666666667,
+        "Hits@1": 0.56,
+        "Hits@3": 0.7066666666666667,
+        "Hits@10": 0.84,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9729777777777778,
+        "AP": 0.9271922079684407,
+        "MRR": 0.5230480595452488,
+        "Mean_Rank": 9.4,
+        "Hits@1": 0.38666666666666666,
+        "Hits@3": 0.6,
+        "Hits@10": 0.76,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9714133333333334,
+        "AP": 0.942589488466014,
+        "MRR": 0.5853990952632799,
+        "Mean_Rank": 7.8,
+        "Hits@1": 0.49333333333333335,
+        "Hits@3": 0.64,
+        "Hits@10": 0.7466666666666667,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ],
+    "sage": [
+      {
+        "AUC-ROC": 0.9660088888888888,
+        "AP": 0.8979529959262788,
+        "MRR": 0.4814754457213821,
+        "Mean_Rank": 11.453333333333333,
+        "Hits@1": 0.36,
+        "Hits@3": 0.5066666666666667,
+        "Hits@10": 0.7466666666666667,
+        "Hits@50": 0.9333333333333333,
+        "Hits@100": 1.0,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9735822222222222,
+        "AP": 0.9085836698173352,
+        "MRR": 0.448370329501334,
+        "Mean_Rank": 11.666666666666666,
+        "Hits@1": 0.3333333333333333,
+        "Hits@3": 0.49333333333333335,
+        "Hits@10": 0.7066666666666667,
+        "Hits@50": 0.9066666666666666,
+        "Hits@100": 1.0,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9805511111111112,
+        "AP": 0.9201697676504242,
+        "MRR": 0.4891786371564183,
+        "Mean_Rank": 8.0,
+        "Hits@1": 0.3466666666666667,
+        "Hits@3": 0.5333333333333333,
+        "Hits@10": 0.76,
+        "Hits@50": 0.96,
+        "Hits@100": 1.0,
+        "ablation_config": "no_anatomy",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Gene"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ]
+  },
+  "no_gene": {
+    "rgcn": [
+      {
+        "AUC-ROC": 0.9793777777777778,
+        "AP": 0.9468101687752912,
+        "MRR": 0.6907044770337132,
+        "Mean_Rank": 6.32,
+        "Hits@1": 0.6133333333333333,
+        "Hits@3": 0.7066666666666667,
+        "Hits@10": 0.8666666666666667,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9903288888888888,
+        "AP": 0.9729543960091664,
+        "MRR": 0.6210535984483353,
+        "Mean_Rank": 6.12,
+        "Hits@1": 0.5066666666666667,
+        "Hits@3": 0.7066666666666667,
+        "Hits@10": 0.8266666666666667,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9900800000000001,
+        "AP": 0.9710025633112618,
+        "MRR": 0.5717059211036193,
+        "Mean_Rank": 5.826666666666667,
+        "Hits@1": 0.44,
+        "Hits@3": 0.6266666666666667,
+        "Hits@10": 0.8266666666666667,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ],
+    "han": [
+      {
+        "AUC-ROC": 0.9847111111111111,
+        "AP": 0.9618121975421632,
+        "MRR": 0.69658235364853,
+        "Mean_Rank": 4.64,
+        "Hits@1": 0.6133333333333333,
+        "Hits@3": 0.72,
+        "Hits@10": 0.8666666666666667,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9822577777777778,
+        "AP": 0.9406053733906163,
+        "MRR": 0.6499739991684937,
+        "Mean_Rank": 7.373333333333333,
+        "Hits@1": 0.5733333333333334,
+        "Hits@3": 0.64,
+        "Hits@10": 0.8533333333333334,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9905422222222222,
+        "AP": 0.966097008645072,
+        "MRR": 0.6880162792373318,
+        "Mean_Rank": 4.8,
+        "Hits@1": 0.6133333333333333,
+        "Hits@3": 0.6933333333333334,
+        "Hits@10": 0.8533333333333334,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ],
+    "sage": [
+      {
+        "AUC-ROC": 0.9828977777777779,
+        "AP": 0.9551888323057521,
+        "MRR": 0.638147077284433,
+        "Mean_Rank": 8.053333333333333,
+        "Hits@1": 0.5333333333333333,
+        "Hits@3": 0.6933333333333334,
+        "Hits@10": 0.8,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9892622222222223,
+        "AP": 0.9563694316845232,
+        "MRR": 0.5248403249149515,
+        "Mean_Rank": 11.2,
+        "Hits@1": 0.4266666666666667,
+        "Hits@3": 0.56,
+        "Hits@10": 0.7333333333333333,
+        "Hits@50": 0.9066666666666666,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9936,
+        "AP": 0.9708492147774972,
+        "MRR": 0.5687305351241543,
+        "Mean_Rank": 7.28,
+        "Hits@1": 0.44,
+        "Hits@3": 0.64,
+        "Hits@10": 0.8266666666666667,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_gene",
+        "node_types": [
+          "Compound",
+          "Disease",
+          "Anatomy"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ]
+  },
+  "no_intermediate": {
+    "rgcn": [
+      {
+        "AUC-ROC": 0.9892977777777778,
+        "AP": 0.966878147292539,
+        "MRR": 0.6924156080704068,
+        "Mean_Rank": 5.546666666666667,
+        "Hits@1": 0.6,
+        "Hits@3": 0.7333333333333333,
+        "Hits@10": 0.88,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 1.0,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9899377777777779,
+        "AP": 0.9704507614090172,
+        "MRR": 0.566005153291101,
+        "Mean_Rank": 8.506666666666666,
+        "Hits@1": 0.4666666666666667,
+        "Hits@3": 0.6266666666666667,
+        "Hits@10": 0.76,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9923911111111111,
+        "AP": 0.9570194940219114,
+        "MRR": 0.6135772352066103,
+        "Mean_Rank": 5.84,
+        "Hits@1": 0.5066666666666667,
+        "Hits@3": 0.7066666666666667,
+        "Hits@10": 0.8,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "rgcn",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ],
+    "han": [
+      {
+        "AUC-ROC": 0.9876977777777778,
+        "AP": 0.96160434837212,
+        "MRR": 0.7054879427351958,
+        "Mean_Rank": 3.546666666666667,
+        "Hits@1": 0.6133333333333333,
+        "Hits@3": 0.7466666666666667,
+        "Hits@10": 0.9466666666666667,
+        "Hits@50": 1.0,
+        "Hits@100": 1.0,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9891911111111111,
+        "AP": 0.9589160972665227,
+        "MRR": 0.6483751571586408,
+        "Mean_Rank": 5.373333333333333,
+        "Hits@1": 0.56,
+        "Hits@3": 0.68,
+        "Hits@10": 0.8533333333333334,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9916088888888889,
+        "AP": 0.9798012126981767,
+        "MRR": 0.6793278381787154,
+        "Mean_Rank": 4.4,
+        "Hits@1": 0.56,
+        "Hits@3": 0.76,
+        "Hits@10": 0.8533333333333334,
+        "Hits@50": 1.0,
+        "Hits@100": 1.0,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "han",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ],
+    "sage": [
+      {
+        "AUC-ROC": 0.9826844444444445,
+        "AP": 0.9447649574886281,
+        "MRR": 0.549613990087532,
+        "Mean_Rank": 9.92,
+        "Hits@1": 0.4533333333333333,
+        "Hits@3": 0.5866666666666667,
+        "Hits@10": 0.7866666666666666,
+        "Hits@50": 0.9733333333333334,
+        "Hits@100": 0.9733333333333334,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 42
+      },
+      {
+        "AUC-ROC": 0.9901866666666665,
+        "AP": 0.9659931721068186,
+        "MRR": 0.5535792503296362,
+        "Mean_Rank": 9.013333333333334,
+        "Hits@1": 0.4533333333333333,
+        "Hits@3": 0.6,
+        "Hits@10": 0.7733333333333333,
+        "Hits@50": 0.96,
+        "Hits@100": 0.9866666666666667,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 43
+      },
+      {
+        "AUC-ROC": 0.9895111111111111,
+        "AP": 0.96538001099423,
+        "MRR": 0.5603729381083876,
+        "Mean_Rank": 7.16,
+        "Hits@1": 0.4533333333333333,
+        "Hits@3": 0.6,
+        "Hits@10": 0.8266666666666667,
+        "Hits@50": 0.9866666666666667,
+        "Hits@100": 1.0,
+        "ablation_config": "no_intermediate",
+        "node_types": [
+          "Compound",
+          "Disease"
+        ],
+        "encoder_type": "sage",
+        "decoder_type": "distmult",
+        "seed": 44
+      }
+    ]
+  }
+}

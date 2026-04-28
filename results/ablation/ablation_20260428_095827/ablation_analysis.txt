@@ -1,0 +1,111 @@
+
+================================================================================
+ANÁLISIS DE RESULTADOS DE ABLACIÓN
+================================================================================
+
+============================================================
+Configuración: FULL
+============================================================
+
+  Encoder: RGCN
+    MRR: 0.5989 ± 0.0128
+    Hits@10: 0.8200 ± 0.0600
+    AUC-ROC: 0.9842 ± 0.0013
+
+  Encoder: HAN
+    MRR: 0.5885 ± 0.0596
+    Hits@10: 0.8044 ± 0.0559
+    AUC-ROC: 0.9744 ± 0.0100
+
+  Encoder: SAGE
+    MRR: 0.4845 ± 0.0485
+    Hits@10: 0.7422 ± 0.0251
+    AUC-ROC: 0.9772 ± 0.0104
+
+============================================================
+Configuración: NO_ANATOMY
+============================================================
+
+  Encoder: RGCN
+    MRR: 0.5952 ± 0.0092 (Δ: -0.6%)
+    Hits@10: 0.8400 ± 0.0267 (Δ: +2.4%)
+    AUC-ROC: 0.9786 ± 0.0105 (Δ: -0.6%)
+
+  Encoder: HAN
+    MRR: 0.5864 ± 0.0522 (Δ: -0.4%)
+    Hits@10: 0.7822 ± 0.0412 (Δ: -2.8%)
+    AUC-ROC: 0.9734 ± 0.0019 (Δ: -0.1%)
+
+  Encoder: SAGE
+    MRR: 0.4730 ± 0.0177 (Δ: -2.4%)
+    Hits@10: 0.7378 ± 0.0227 (Δ: -0.6%)
+    AUC-ROC: 0.9734 ± 0.0059 (Δ: -0.4%)
+
+============================================================
+Configuración: NO_GENE
+============================================================
+
+  Encoder: RGCN
+    MRR: 0.6278 ± 0.0488 (Δ: +4.8%)
+    Hits@10: 0.8400 ± 0.0189 (Δ: +2.4%)
+    AUC-ROC: 0.9866 ± 0.0051 (Δ: +0.2%)
+
+  Encoder: HAN
+    MRR: 0.6782 ± 0.0203 (Δ: +15.2%)
+    Hits@10: 0.8578 ± 0.0063 (Δ: +6.6%)
+    AUC-ROC: 0.9858 ± 0.0035 (Δ: +1.2%)
+
+  Encoder: SAGE
+    MRR: 0.5772 ± 0.0466 (Δ: +19.1%)
+    Hits@10: 0.7867 ± 0.0393 (Δ: +6.0%)
+    AUC-ROC: 0.9886 ± 0.0044 (Δ: +1.2%)
+
+============================================================
+Configuración: NO_INTERMEDIATE
+============================================================
+
+  Encoder: RGCN
+    MRR: 0.6240 ± 0.0521 (Δ: +4.2%)
+    Hits@10: 0.8133 ± 0.0499 (Δ: -0.8%)
+    AUC-ROC: 0.9905 ± 0.0013 (Δ: +0.6%)
+
+  Encoder: HAN
+    MRR: 0.6777 ± 0.0233 (Δ: +15.2%)
+    Hits@10: 0.8844 ± 0.0440 (Δ: +9.9%)
+    AUC-ROC: 0.9895 ± 0.0016 (Δ: +1.5%)
+
+  Encoder: SAGE
+    MRR: 0.5545 ± 0.0044 (Δ: +14.5%)
+    Hits@10: 0.7956 ± 0.0227 (Δ: +7.2%)
+    AUC-ROC: 0.9875 ± 0.0034 (Δ: +1.0%)
+
+================================================================================
+CONCLUSIONES
+================================================================================
+
+INTERPRETACIÓN DE RESULTADOS:
+
+1. IMPACTO DE GENES (comparar 'full' vs 'no_gene'):
+   - Si hay degradación significativa (>10% en MRR):
+     → Los genes son cruciales para la predicción
+     → Valida la hipótesis de network medicine
+   - Si la degradación es menor:
+     → El modelo podría usar shortcuts o memorización
+
+2. IMPACTO DE ANATOMÍAS (comparar 'full' vs 'no_anatomy'):
+   - Generalmente esperamos menor impacto que genes
+   - Si hay impacto significativo:
+     → La expresión tisular aporta información relevante
+
+3. BASELINE DIRECTO (configuración 'no_intermediate'):
+   - Este es el caso extremo: solo asociaciones directas drug-disease
+   - Si el rendimiento es comparable a 'full':
+     → El modelo memoriza asociaciones existentes
+     → Las entidades intermedias no aportan generalización
+   - Si es mucho peor:
+     → Las entidades intermedias son esenciales para inferencia
+
+4. COMPARACIÓN DE ARQUITECTURAS:
+   - GAT/HAN: esperamos que capture mejor relaciones heterogéneas
+   - GraphSAGE: más robusto para inducción
+   - R-GCN: baseline sólido para grafos relacionales
