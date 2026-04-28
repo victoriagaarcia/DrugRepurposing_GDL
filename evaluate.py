@@ -289,6 +289,10 @@ class LinkPredictionEvaluator:
 
         return metrics
 
+# DEPRECATED:
+# Esta función queda mantenida solo por compatibilidad.
+# Para los experimentos principales usar LinkPredictionEvaluator.evaluate(),
+# que ya calcula AUC/AP y ranking completo.
 def evaluate_full_ranking(
     model,
     data: HeteroData,

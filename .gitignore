@@ -2,7 +2,7 @@ data/
 checkpoints/
 .venv/
 .git/
-__pycache__/
+*/__pycache__/
 results/
 .python-version
 uv.lock

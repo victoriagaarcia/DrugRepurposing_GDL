@@ -273,8 +273,10 @@ class HetionetDataLoader:
                 dst_type = edge["target_kind"]
                 source_id = edge.get("source", "")
                 target_id = edge.get("target", "")
-                relation = edge.get("relation", edge.get("kind", "related"))
-
+                # relation = edge.get("relation", edge.get("kind", "related"))
+                relation = edge.get("relation")
+                if relation is None:
+                    relation = self._parse_edge_kind(edge.get("kind", "related"))
             # CASO 2: formato real de Hetionet
             elif "source_id" in edge and "target_id" in edge:
                 src_info = edge["source_id"]   # ej. ["Anatomy", "UBERON:0000178"]
@@ -288,8 +290,9 @@ class HetionetDataLoader:
                     dst_type = dst_info[0]
                     target_id = dst_info[1]
 
-                relation = edge.get("kind", "related")
-
+                # relation = edge.get("kind", "related")
+                relation = self._parse_edge_kind(edge.get("kind", "related"))
+                
             # CASO 3: fallback antiguo
             else:
                 source_id = edge.get("source", "")
@@ -463,24 +466,35 @@ class HetionetDataLoader:
         target = self.target_edge_type
         
         # Verificar que el target edge type existe
+        # if target not in data.edge_types:
+        #     # Buscar un tipo similar
+        #     available = [et for et in data.edge_types 
+        #                 if et[0] == target[0] and et[2] == target[2]]
+        #     if available:
+        #         target = available[0]
+        #         print(f"Usando edge type: {target}")
+        #     else:
+        #         print(f"ADVERTENCIA: Edge type {target} no encontrado")
+        #         print(f"Disponibles: {data.edge_types}")
+        #         # Usar el primer edge type disponible para demo
+        #         target = list(data.edge_types)[0]
+        #         print(f"Usando: {target}")
+        #         raise ValueError(
+        #             f"Edge type objetivo {target} no encontrado. "
+        #             f"Disponibles: {list(data.edge_types)}"
+        #         )
         if target not in data.edge_types:
-            # Buscar un tipo similar
-            available = [et for et in data.edge_types 
-                        if et[0] == target[0] and et[2] == target[2]]
-            if available:
-                target = available[0]
-                print(f"Usando edge type: {target}")
-            else:
-                print(f"ADVERTENCIA: Edge type {target} no encontrado")
-                print(f"Disponibles: {data.edge_types}")
-                # Usar el primer edge type disponible para demo
-                target = list(data.edge_types)[0]
-                print(f"Usando: {target}")
-                raise ValueError(
-                    f"Edge type objetivo {target} no encontrado. "
-                    f"Disponibles: {list(data.edge_types)}"
-                )
-        
+            same_src_dst = [
+                et for et in data.edge_types
+                if et[0] == target[0] and et[2] == target[2]
+            ]
+
+            raise ValueError(
+                f"Edge type objetivo {target} no encontrado. "
+                f"Relaciones disponibles con mismo src/dst: {same_src_dst}. "
+                f"Todos los edge_types disponibles: {list(data.edge_types)}"
+            )
+
         # RandomLinkSplit de PyG
         # Divide las aristas del tipo especificado en train/val/test
         transform = RandomLinkSplit(

@@ -20,6 +20,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from venv import logger
 
 import torch
 
@@ -124,34 +125,57 @@ def build_config(
     return config
 
 
+# def resolve_target_edge_type(
+#     data,
+#     default_target: Tuple[str, str, str],
+# ) -> Tuple[str, str, str]:
+#     """
+#     Busca en el HeteroData el edge type real equivalente al target lógico.
+#     Prioriza mismo src/dst y misma relación; si no existe, usa el primero
+#     con mismo src/dst.
+#     """
+#     if default_target in data.edge_types:
+#         return default_target
+
+#     exact_src_dst = None
+#     for et in data.edge_types:
+#         if et[0] == default_target[0] and et[2] == default_target[2]:
+#             if et[1] == default_target[1]:
+#                 return et
+#             if exact_src_dst is None:
+#                 exact_src_dst = et
+
+#     if exact_src_dst is not None:
+#         return exact_src_dst
+
+#     if len(data.edge_types) == 0:
+#         raise ValueError("El grafo no contiene tipos de arista.")
+
+#     return list(data.edge_types)[0]
+
 def resolve_target_edge_type(
     data,
     default_target: Tuple[str, str, str],
 ) -> Tuple[str, str, str]:
     """
-    Busca en el HeteroData el edge type real equivalente al target lógico.
-    Prioriza mismo src/dst y misma relación; si no existe, usa el primero
-    con mismo src/dst.
+    Busca el edge type objetivo exacto.
+
+    No hacemos fallback silencioso para evitar entrenar/evaluar por accidente
+    sobre otra relación Compound-Disease, como palliates o CtD sin parsear.
     """
     if default_target in data.edge_types:
         return default_target
 
-    exact_src_dst = None
-    for et in data.edge_types:
-        if et[0] == default_target[0] and et[2] == default_target[2]:
-            if et[1] == default_target[1]:
-                return et
-            if exact_src_dst is None:
-                exact_src_dst = et
+    same_src_dst = [
+        et for et in data.edge_types
+        if et[0] == default_target[0] and et[2] == default_target[2]
+    ]
 
-    if exact_src_dst is not None:
-        return exact_src_dst
-
-    if len(data.edge_types) == 0:
-        raise ValueError("El grafo no contiene tipos de arista.")
-
-    return list(data.edge_types)[0]
-
+    raise ValueError(
+        f"Edge type objetivo {default_target} no encontrado. "
+        f"Relaciones disponibles con mismo src/dst: {same_src_dst}. "
+        f"Todos los edge_types disponibles: {list(data.edge_types)}"
+    )
 
 def sample_negative_edges(
     data,
@@ -229,6 +253,7 @@ def save_final_model(
     target_edge_type: Tuple[str, str, str],
     history: Dict,
     test_metrics: Dict,
+    test_metrics_raw: Dict,
 ) -> None:
     """Guarda un checkpoint simple y coherente para inferencia/análisis."""
     checkpoint = {
@@ -239,6 +264,7 @@ def save_final_model(
         "target_edge_type": list(target_edge_type),
         "history": history,
         "test_metrics": test_metrics,
+        "test_metrics_raw": test_metrics_raw,
         "timestamp": datetime.now().isoformat(),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -302,6 +328,20 @@ def run_single_experiment(
     target_edge_type = resolve_target_edge_type(train_data, config.data.target_edge_type)
     logger.info(f"Target edge type resuelto: {target_edge_type}")
 
+    logger.info(f"Target edge type usado: {target_edge_type}")
+
+    if hasattr(train_data[target_edge_type], "edge_index"):
+        logger.info(
+            f"Train message edges target: "
+            f"{train_data[target_edge_type].edge_index.size(1)}"
+        )
+
+    if hasattr(test_data[target_edge_type], "edge_label_index"):
+        logger.info(
+            f"Test label edges target: "
+            f"{test_data[target_edge_type].edge_label_index.size(1)}"
+        )
+
     logger.info("Iniciando entrenamiento...")
     with Timer("Entrenamiento", logger):
         trained_model, history = train_model(
@@ -314,9 +354,19 @@ def run_single_experiment(
         )
 
     logger.info("Evaluación en test set...")
-    evaluator = LinkPredictionEvaluator(
+    # evaluator = LinkPredictionEvaluator(
+    #     hits_k_values=config.evaluation.hits_k_values,
+    #     filtered=config.evaluation.filtered,
+    # )
+
+    evaluator_filtered = LinkPredictionEvaluator(
         hits_k_values=config.evaluation.hits_k_values,
-        filtered=config.evaluation.filtered,
+        filtered=True,
+    )
+
+    evaluator_raw = LinkPredictionEvaluator(
+        hits_k_values=config.evaluation.hits_k_values,
+        filtered=False,
     )
 
     edge_label_index, edge_label = get_eval_edges_and_labels(
@@ -329,8 +379,8 @@ def run_single_experiment(
     known_edge_type = resolve_target_edge_type(data, target_edge_type)
     known_edges = data[known_edge_type].edge_index.to(torch.device(config.training.device))
 
-    with Timer("Evaluación", logger):
-        test_metrics = evaluator.evaluate(
+    with Timer("Evaluación filtered", logger):
+        test_metrics = evaluator_filtered.evaluate(
             model=trained_model,
             data=test_data,
             edge_label_index=edge_label_index,
@@ -340,11 +390,35 @@ def run_single_experiment(
             batch_size=config.training.batch_size,
             existing_edges=known_edges,
         )
+    
+    with Timer("Evaluación raw", logger):
+        test_metrics_raw = evaluator_raw.evaluate(
+            model=trained_model,
+            data=test_data,
+            edge_label_index=edge_label_index,
+            edge_label=edge_label,
+            src_type=target_edge_type[0],
+            dst_type=target_edge_type[2],
+            batch_size=config.training.batch_size,
+            existing_edges=None,  # No filtramos en raw
+        )
+
+    # logger.info("\n" + "=" * 60)
+    # logger.info("RESULTADOS FINALES (TEST)")
+    # logger.info("=" * 60)
+    # logger.info("\n" + format_metrics(test_metrics))
+    # logger.info("=" * 60)
 
     logger.info("\n" + "=" * 60)
-    logger.info("RESULTADOS FINALES (TEST)")
+    logger.info("RESULTADOS FINALES (TEST) - FILTERED")
     logger.info("=" * 60)
     logger.info("\n" + format_metrics(test_metrics))
+    logger.info("=" * 60)
+
+    logger.info("\n" + "=" * 60)
+    logger.info("RESULTADOS FINALES (TEST) - RAW")
+    logger.info("=" * 60)
+    logger.info("\n" + format_metrics(test_metrics_raw))
     logger.info("=" * 60)
 
     results = {
@@ -360,6 +434,7 @@ def run_single_experiment(
         "graph_statistics": stats,
         "training_history": history,
         "test_metrics": test_metrics,
+        "test_metrics_raw": test_metrics_raw,
         "timestamp": timestamp,
     }
 
@@ -373,6 +448,7 @@ def run_single_experiment(
         target_edge_type=target_edge_type,
         history=history,
         test_metrics=test_metrics,
+        test_metrics_raw=test_metrics_raw,
     )
 
     logger.info(f"Resultados guardados en: {exp_dir}")
@@ -495,9 +571,15 @@ def analyze_model_predictions(
     target_edge_type = resolve_target_edge_type(data, config.data.target_edge_type)
 
     logger.info("Generando scores para todos los pares posibles...")
+    logger.info("Usando train_data como grafo observable para evitar leakage en inferencia.")
+    
+    observed_data = train_data.to(device)
+    # En este modo queremos generar predicciones nuevas. Para eso el modelo no debe ver el grafo 
+    # completo data, porque data contiene también enlaces que pertenecen a val/test.
+    # Por eso usamos train_data
     with torch.no_grad():
         all_scores = model.predict_all_pairs(
-            data.to(device),
+            data=observed_data,
             src_type=target_edge_type[0],
             dst_type=target_edge_type[2],
         ).detach().cpu()
