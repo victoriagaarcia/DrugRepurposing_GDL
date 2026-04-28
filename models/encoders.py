@@ -350,6 +350,21 @@ class HANEncoder(nn.Module):
 
         self.convs = nn.ModuleList()
 
+        self.skip_proj = nn.ModuleList()
+
+        for i in range(num_layers):
+            in_dim = hidden_dim
+            out_layer_dim = out_dim if i == num_layers - 1 else hidden_dim
+
+            self.skip_proj.append(
+                nn.ModuleDict(
+                    {
+                        node_type: nn.Linear(in_dim, out_layer_dim)
+                        for node_type in node_types
+                    }
+                )
+            )
+            
         for i in range(num_layers):
             in_channels = hidden_dim
 
@@ -500,16 +515,19 @@ class HANEncoder(nn.Module):
             h_dict_new = {}
 
             for node_type in h_dict:
+                # if node_type in contributions and contributions[node_type]:
+                #     z = torch.stack(contributions[node_type], dim=1)
+                #     h_dict_new[node_type] = self.semantic_attention[i][node_type](z)
+                # else:
+                #     h_dict_new[node_type] = self.skip_proj[i][node_type](h_dict[node_type])
+                skip_h = self.skip_proj[i][node_type](h_dict[node_type])
                 if node_type in contributions and contributions[node_type]:
-                    # contributions[node_type] es una lista de tensores [N, D]
-                    # Queremos [N, S, D]
                     z = torch.stack(contributions[node_type], dim=1)
-
-                    # Aplicamos atención semántica de esta capa y tipo de nodo
-                    h_dict_new[node_type] = self.semantic_attention[i][node_type](z)
+                    message_h = self.semantic_attention[i][node_type](z)
+                    h_dict_new[node_type] = message_h + skip_h
                 else:
-                    h_dict_new[node_type] = h_dict[node_type]
-                    
+                    h_dict_new[node_type] = self.skip_proj[i][node_type](h_dict[node_type])
+            
             h_dict = h_dict_new
 
             for node_type in h_dict:
