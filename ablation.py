@@ -130,6 +130,15 @@ class AblationStudy:
         exp_config = deepcopy(self.config)
         exp_config.data.node_types = node_types
         
+        exp_config.training.checkpoint_dir = os.path.join(
+            self.results_dir,
+            "checkpoints",
+            ablation_config_name,
+            encoder_type,
+            f"seed_{seed}",
+        )
+        os.makedirs(exp_config.training.checkpoint_dir, exist_ok=True)
+
         # Cargar datos con los tipos especificados
         try:
             data, train_data, val_data, test_data = create_ablation_data(
